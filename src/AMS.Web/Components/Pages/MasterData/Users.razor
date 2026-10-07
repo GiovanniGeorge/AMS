@@ -1,0 +1,221 @@
+﻿@page "/master/users"
+@attribute [Authorize(Roles = AppRoles.Admin)]
+@inject ICrudService<User> Service
+@inject ICrudService<Role> RoleService
+@inject ICrudService<UserRole> UserRoleService
+@inject IPasswordHasher Hasher
+
+<PageTitle>Users</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Users</h1>
+        <div class="sub">Login accounts &middot; @(_rows?.Count ?? 0) record(s)</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ New User</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar">
+        <label><input type="checkbox" @bind="_showInactive" @bind:after="LoadAsync" /> Show inactive</label>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No records yet.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr><th>#</th><th>Username</th><th>Roles</th><th>Created</th><th>Created by</th><th>Status</th><th class="actions">Actions</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr class="@(r.IsActive ? "" : "is-inactive")">
+                        <td>@r.Id</td>
+                        <td>@r.Username</td>
+                        <td>@RoleNames(r.Id)</td>
+                        <td>@r.CreatedOn.ToString("yyyy-MM-dd")</td>
+                        <td><UserName Id="r.CreatedById" Names="_userNames" /></td>
+                        <td><StatusBadge Active="r.IsActive" /></td>
+                        <td class="actions">
+                            <button class="ams-btn link" @onclick="() => OpenEditAsync(r.Id)">Edit</button>
+                            <button class="ams-btn link @(r.IsActive ? "danger" : "")" @onclick="() => ToggleAsync(r)">
+                                @(r.IsActive ? "Deactivate" : "Activate")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<ModalForm Visible="_editing is not null" Title="@_title" OnSave="SaveAsync" OnCancel="Cancel">
+    @if (_editing is not null)
+    {
+        <div class="ams-field"><label>Username *</label><input @bind="_editing.Username" /></div>
+        <div class="ams-field">
+            <label>Password @(_editing.Id == 0 ? "*" : "(leave empty to keep current)")</label>
+            <input type="password" @bind="_password" />
+        </div>
+        <div class="ams-field">
+            <label>Roles</label>
+            @if (_roles.Count == 0)
+            {
+                <div class="ams-empty" style="padding:8px 0;">No roles defined yet — add them in Roles first.</div>
+            }
+            else
+            {
+                @foreach (var role in _roles)
+                {
+                    <label style="display:block;font-weight:400;">
+                        <input type="checkbox"
+                               style="width:auto;margin-right:6px;"
+                               checked="@_selectedRoleIds.Contains(role.Id)"
+                               @onchange="e => ToggleRole(role.Id, (bool)(e.Value ?? false))" />
+                        @role.Name
+                    </label>
+                }
+            }
+        </div>
+    }
+</ModalForm>
+
+@code {
+    private List<User>? _rows;
+    private List<Role> _roles = new();
+    private List<UserRole> _userRoles = new();
+
+    private User? _editing;
+    private HashSet<int> _selectedRoleIds = new();
+    private string _password = string.Empty;
+    private string _title = string.Empty;
+    private bool _showInactive;
+    private string? _error;
+    private Dictionary<int, string> _userNames = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rows = await Service.GetAllAsync(_showInactive); _userNames = (await Service.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+            _roles = await RoleService.GetAllAsync();
+            _userRoles = await UserRoleService.GetAllAsync(false, ur => ur.Role!);
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private string RoleNames(int userId)
+    {
+        var names = _userRoles
+            .Where(ur => ur.UserId == userId && ur.Role is not null)
+            .Select(ur => ur.Role!.Name);
+
+        var joined = string.Join(", ", names);
+        return joined.Length == 0 ? "—" : joined;
+    }
+
+    private void ToggleRole(int roleId, bool selected)
+    {
+        if (selected) _selectedRoleIds.Add(roleId);
+        else _selectedRoleIds.Remove(roleId);
+    }
+
+    private void OpenNew()
+    {
+        _editing = new User();
+        _selectedRoleIds = new HashSet<int>();
+        _password = string.Empty;
+        _title = "New User";
+        _error = null;
+    }
+
+    private async Task OpenEditAsync(int id)
+    {
+        _editing = await Service.GetByIdAsync(id);
+        _selectedRoleIds = _userRoles.Where(ur => ur.UserId == id).Select(ur => ur.RoleId).ToHashSet();
+        _password = string.Empty;
+        _title = "Edit User";
+        _error = null;
+    }
+
+    private void Cancel()
+    {
+        _editing = null;
+        _selectedRoleIds = new HashSet<int>();
+        _password = string.Empty;
+        _error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null) return;
+        if (string.IsNullOrWhiteSpace(_editing.Username)) { _error = "Username is required."; return; }
+        if (_editing.Id == 0 && string.IsNullOrWhiteSpace(_password)) { _error = "Password is required for a new user."; return; }
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_password))
+            {
+                _editing.PasswordHash = Hasher.Hash(_password);
+            }
+
+            if (_editing.Id == 0) await Service.AddAsync(_editing);
+            else await Service.UpdateAsync(_editing);
+
+            await SaveRolesAsync(_editing.Id);
+
+            _editing = null;
+            _selectedRoleIds = new HashSet<int>();
+            _password = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    // Adds the newly ticked roles, re-activates previously removed ones,
+    // and deactivates the ones that were unticked. Nothing is hard-deleted.
+    private async Task SaveRolesAsync(int userId)
+    {
+        var existing = (await UserRoleService.GetAllAsync(true))
+            .Where(ur => ur.UserId == userId)
+            .ToList();
+
+        foreach (var roleId in _selectedRoleIds)
+        {
+            var link = existing.FirstOrDefault(ur => ur.RoleId == roleId);
+
+            if (link is null)
+                await UserRoleService.AddAsync(new UserRole { UserId = userId, RoleId = roleId });
+            else if (!link.IsActive)
+                await UserRoleService.ActivateAsync(link.Id);
+        }
+
+        foreach (var link in existing.Where(ur => ur.IsActive && !_selectedRoleIds.Contains(ur.RoleId)))
+        {
+            await UserRoleService.DeactivateAsync(link.Id);
+        }
+    }
+
+    private async Task ToggleAsync(User r)
+    {
+        if (r.IsActive) await Service.DeactivateAsync(r.Id);
+        else await Service.ActivateAsync(r.Id);
+        await LoadAsync();
+    }
+}

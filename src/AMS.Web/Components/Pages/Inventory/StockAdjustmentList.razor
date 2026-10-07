@@ -1,0 +1,221 @@
+﻿@page "/stock-adjustments"
+@inject IStockService Stock
+@inject ICrudService<Store> Stores
+@inject ICrudService<Item> Items
+@inject ICrudService<User> Users
+
+<PageTitle>Stock Adjustments</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Stock Adjustments</h1>
+        <div class="sub">@_total adjustment(s) — how consumable items leave or enter stock outside a delivery</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ Adjust Stock</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No adjustments yet.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr><th>Date</th><th>Store</th><th>Item</th><th>Direction</th><th>Quantity</th><th>Reason</th><th>Recorded by</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var a in _rows)
+                {
+                    <tr>
+                        <td>@a.Date?.ToString("yyyy-MM-dd")</td>
+                        <td>@(a.Store?.Name ?? "—")</td>
+                        <td>@(a.Item?.Name ?? "—")</td>
+                        <td>@a.AdjustmentType</td>
+                        <td>@a.Quantity?.ToString("N2")</td>
+                        <td>@a.Reason</td>
+                        <td><UserName Id="a.CreatedById" Names="_userNames" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <Pager Page="_page" Total="_total" PageChanged="GoToAsync" />
+    }
+</div>
+
+<ModalForm Visible="_open" Title="Adjust stock" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Store *</label>
+            @if (_stores.Count == 0)
+            {
+                <div class="ams-readonly">No stores yet — <a class="ams-link" href="master/stores">add them in Stores</a>.</div>
+            }
+            else
+            {
+                <select @bind="_storeId" @bind:after="ShowBalanceAsync">
+                    <option value="0">— select —</option>
+                    @foreach (var s in _stores)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="ams-field">
+            <label>Item *</label>
+            @if (_items.Count == 0)
+            {
+                <div class="ams-readonly">No items yet — <a class="ams-link" href="master/items">add them in Items</a>.</div>
+            }
+            else
+            {
+                <select @bind="_itemId" @bind:after="ShowBalanceAsync">
+                    <option value="0">— select —</option>
+                    @foreach (var i in _items)
+                    {
+                        <option value="@i.Id">@i.Name</option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="ams-field">
+            <label>In stock now</label>
+            <div class="ams-readonly">@_current.ToString("N2")</div>
+        </div>
+
+        <div class="ams-field">
+            <label>Direction *</label>
+            <select @bind="_direction">
+                <option value="@StockDirection.Decrease">Decrease (consumed, damaged, count correction)</option>
+                <option value="@StockDirection.Increase">Increase (found again, count correction)</option>
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Quantity *</label>
+            <input type="number" step="0.01" @bind="_quantity" />
+        </div>
+
+        <div class="ams-field">
+            <label>Date *</label>
+            <input type="date" @bind="_date" />
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Reason *</label>
+        <textarea rows="2" @bind="_reason"></textarea>
+    </div>
+
+    <p class="ams-hint">Applied at once, with no approval. Stock can never go below zero.</p>
+</ModalForm>
+
+@code {
+    private List<StockAdjustment>? _rows;
+    private List<Store> _stores = new();
+    private List<Item> _items = new();
+    private Dictionary<int, string> _userNames = new();
+
+    private bool _open;
+    private int _storeId;
+    private int _itemId;
+    private decimal _current;
+    private string _direction = StockDirection.Decrease;
+    private decimal _quantity = 1;
+    private DateTime _date = DateTime.Today;
+    private string? _reason;
+    private string? _error;
+    private int _total;
+    private int _page = 1;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _stores = await Stores.GetAllAsync();
+            _items = await Items.GetAllAsync();
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var result = await Stock.GetAdjustmentsAsync(_page);
+            _rows = result.Items;
+            _total = result.Total;
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+
+    private async Task GoToAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
+
+    private async Task FilterAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private void OpenNew()
+    {
+        _storeId = _stores.Count == 1 ? _stores[0].Id : 0;
+        _itemId = 0;
+        _current = 0;
+        _direction = StockDirection.Decrease;
+        _quantity = 1;
+        _date = DateTime.Today;
+        _reason = null;
+        _error = null;
+        _open = true;
+    }
+
+    private void Close() => _open = false;
+
+    private async Task ShowBalanceAsync()
+    {
+        _current = _storeId == 0 || _itemId == 0 ? 0 : await Stock.GetQuantityAsync(_storeId, _itemId);
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_storeId == 0) { _error = "Store is required."; return; }
+        if (_itemId == 0) { _error = "Item is required."; return; }
+        if (_quantity <= 0) { _error = "The quantity must be greater than zero."; return; }
+        if (string.IsNullOrWhiteSpace(_reason)) { _error = "A reason is required."; return; }
+        if (_date == default) { _error = "The date is required."; return; }
+
+        try
+        {
+            await Stock.AdjustAsync(new StockAdjustmentInput(_storeId, _itemId, _quantity, _direction, _reason!, _date));
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+}

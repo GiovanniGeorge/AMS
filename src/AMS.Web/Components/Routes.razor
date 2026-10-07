@@ -1,0 +1,23 @@
+﻿<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized Context="auth">
+                @* Not signed in -> go to Login. Signed in but missing the role -> say so,
+                   otherwise the user is bounced to a login page they are already past. *@
+                @if (auth.User.Identity?.IsAuthenticated == true)
+                {
+                    <div class="ams-page-head"><div><h1>No access</h1></div></div>
+                    <div class="ams-alert">
+                        This screen is for the administrator only. Ask the administrator if you need it.
+                    </div>
+                    <a class="ams-btn ghost" href="">Back to the dashboard</a>
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

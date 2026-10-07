@@ -1,0 +1,118 @@
+@page "/master/asset-statuses"
+@inject ICrudService<AssetStatus> Service
+@inject ICrudService<User> UserService
+
+<PageTitle>Asset Statuses</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Asset Statuses</h1>
+        <div class="sub">Master data &middot; @(_rows?.Count ?? 0) record(s)</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ New Status</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar">
+        <label><input type="checkbox" @bind="_showInactive" @bind:after="LoadAsync" /> Show inactive</label>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No records yet.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr><th>#</th><th>Name</th><th>Description</th><th>Created by</th><th>Status</th><th class="actions">Actions</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr class="@(r.IsActive ? "" : "is-inactive")">
+                        <td>@r.Id</td>
+                        <td>@r.Name</td>
+                        <td>@r.Description</td>
+                        <td><UserName Id="r.CreatedById" Names="_userNames" /></td>
+                        <td><StatusBadge Active="r.IsActive" /></td>
+                        <td class="actions">
+                            <button class="ams-btn link" @onclick="() => OpenEditAsync(r.Id)">Edit</button>
+                            <button class="ams-btn link @(r.IsActive ? "danger" : "")" @onclick="() => ToggleAsync(r)">
+                                @(r.IsActive ? "Deactivate" : "Activate")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<ModalForm Visible="_editing is not null" Title="@_title" OnSave="SaveAsync" OnCancel="Cancel">
+    @if (_editing is not null)
+    {
+        <div class="ams-field"><label>Name *</label><input @bind="_editing.Name" /></div>
+        <div class="ams-field"><label>Description</label><textarea rows="3" @bind="_editing.Description"></textarea></div>
+    }
+</ModalForm>
+
+@code {
+    private List<AssetStatus>? _rows;
+    private AssetStatus? _editing;
+    private string _title = string.Empty;
+    private bool _showInactive;
+    private string? _error;
+    private Dictionary<int, string> _userNames = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try { _rows = await Service.GetAllAsync(_showInactive); _userNames = (await UserService.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username); _error = null; }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void OpenNew() { _editing = new AssetStatus(); _title = "New Status"; _error = null; }
+
+    private async Task OpenEditAsync(int id)
+    {
+        _editing = await Service.GetByIdAsync(id);
+        _title = "Edit Status";
+        _error = null;
+    }
+
+    private void Cancel() { _editing = null; _error = null; }
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null) return;
+        if (string.IsNullOrWhiteSpace(_editing.Name)) { _error = "Name is required."; return; }
+
+        try
+        {
+            if (_editing.Id == 0) await Service.AddAsync(_editing);
+            else await Service.UpdateAsync(_editing);
+
+            _editing = null;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task ToggleAsync(AssetStatus r)
+    {
+        if (r.IsActive) await Service.DeactivateAsync(r.Id);
+        else await Service.ActivateAsync(r.Id);
+        await LoadAsync();
+    }
+}

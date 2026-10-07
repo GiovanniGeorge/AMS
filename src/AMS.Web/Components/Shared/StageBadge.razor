@@ -1,0 +1,17 @@
+@* Coloured badge for an asset's lifecycle stage. *@
+
+<span class="ams-stage ams-stage-@Stage.ToString().ToLowerInvariant()">@Label</span>
+
+@code {
+    [Parameter] public LifecycleStage Stage { get; set; }
+
+    private string Label => Stage switch
+    {
+        LifecycleStage.InStore => "In store",
+        LifecycleStage.Assigned => "Assigned",
+        LifecycleStage.InTransit => "In transit",
+        LifecycleStage.UnderMaintenance => "Under maintenance",
+        LifecycleStage.Disposed => "Disposed",
+        _ => Stage.ToString()
+    };
+}

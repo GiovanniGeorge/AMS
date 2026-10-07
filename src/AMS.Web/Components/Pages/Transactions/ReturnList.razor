@@ -1,0 +1,241 @@
+﻿@page "/returns"
+@inject IReturnService Returns
+@inject ICrudService<Employee> Employees
+@inject ICrudService<Store> Stores
+@inject ICrudService<User> Users
+
+<PageTitle>Returns</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Returns</h1>
+        <div class="sub">@_total return(s) — an asset coming back from an employee into a store</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ Return Asset</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No returns yet.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr>
+                    <th>Date</th><th>Asset</th><th>Returned by</th><th>To store</th>
+                    <th>Condition</th><th>Reason</th><th>Recorded by</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.Date?.ToString("yyyy-MM-dd")</td>
+                        <td><a class="ams-link" href="assets/@r.AssetId">@r.Asset?.AssetNumber</a> @r.Asset?.Name</td>
+                        <td>@(r.Employee?.Name ?? "—")</td>
+                        <td>@(r.Store?.Name ?? "—")</td>
+                        <td>@(r.Condition ?? "—")</td>
+                        <td>@(r.Reason ?? "—")</td>
+                        <td><UserName Id="r.CreatedById" Names="_userNames" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <Pager Page="_page" Total="_total" PageChanged="GoToAsync" />
+    }
+</div>
+
+<ModalForm Visible="_open" Title="Return asset" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Asset *</label>
+            @if (_assets.Count == 0)
+            {
+                <div class="ams-readonly">No asset can be returned — only assets that are <strong>Assigned</strong>.</div>
+            }
+            else
+            {
+                <select @bind="_assetId" @bind:after="OnAssetChanged">
+                    <option value="0">— select —</option>
+                    @foreach (var a in _assets)
+                    {
+                        <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="ams-field">
+            <label>Returned by *</label>
+            <select @bind="_employeeId">
+                <option value="0">— select —</option>
+                @foreach (var e in _employees)
+                {
+                    <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>To store *</label>
+            @if (_stores.Count == 0)
+            {
+                <div class="ams-readonly">No stores yet — <a class="ams-link" href="master/stores">add them in Stores</a>.</div>
+            }
+            else
+            {
+                <select @bind="_storeId">
+                    <option value="0">— select —</option>
+                    @foreach (var s in _stores)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="ams-field">
+            <label>Return date *</label>
+            <input type="date" @bind="_date" />
+        </div>
+
+        <div class="ams-field">
+            <label>Condition</label>
+            <input @bind="_condition" placeholder="Good / Needs repair ..." />
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Reason</label>
+        <textarea rows="2" @bind="_reason"></textarea>
+    </div>
+
+    <p class="ams-hint">
+        No approval is needed. The asset becomes <strong>In store</strong>, its custodian is cleared
+        and the open custody is closed with this date.
+    </p>
+</ModalForm>
+
+@code {
+    [SupplyParameterFromQuery] public int? AssetId { get; set; }
+
+    private List<Return>? _rows;
+    private List<Asset> _assets = new();
+    private List<Employee> _employees = new();
+    private List<Store> _stores = new();
+    private Dictionary<int, string> _userNames = new();
+
+    private bool _open;
+    private int _assetId;
+    private int _employeeId;
+    private int _storeId;
+    private DateTime _date = DateTime.Today;
+    private string? _condition;
+    private string? _reason;
+    private string? _error;
+    private int _total;
+    private int _page = 1;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _employees = await Employees.GetAllAsync();
+            _stores = await Stores.GetAllAsync();
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+
+        // Opened from an asset's page with ?assetId=...
+        if (AssetId is int id)
+        {
+            OpenNew();
+            if (_assets.Any(a => a.Id == id))
+            {
+                _assetId = id;
+                OnAssetChanged();
+            }
+            else
+            {
+                _error = "That asset cannot be returned: it is not Assigned.";
+            }
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var result = await Returns.GetAllAsync(_page);
+            _rows = result.Items;
+            _total = result.Total;
+            _assets = await Returns.GetReturnableAssetsAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+
+    private async Task GoToAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
+
+    private async Task FilterAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private void OpenNew()
+    {
+        _assetId = 0;
+        _employeeId = 0;
+        _storeId = _stores.Count == 1 ? _stores[0].Id : 0;
+        _date = DateTime.Today;
+        _condition = null;
+        _reason = null;
+        _error = null;
+        _open = true;
+    }
+
+    private void Close() => _open = false;
+
+    private void OnAssetChanged()
+    {
+        var asset = _assets.FirstOrDefault(a => a.Id == _assetId);
+        _employeeId = asset?.CustodianId ?? 0;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_assetId == 0) { _error = "Asset is required."; return; }
+        if (_employeeId == 0) { _error = "The employee returning the asset is required."; return; }
+        if (_storeId == 0) { _error = "Store is required."; return; }
+        if (_date == default) { _error = "The date is required."; return; }
+
+        try
+        {
+            await Returns.CreateAsync(new ReturnInput(_assetId, _employeeId, _storeId, _date, _condition, _reason));
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+}

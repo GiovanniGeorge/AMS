@@ -1,0 +1,309 @@
+﻿@page "/workorders"
+@inject IWorkOrderService WorkOrders
+@inject ICrudService<Employee> Employees
+@inject ICrudService<Vendor> Vendors
+@inject ICrudService<User> Users
+
+<PageTitle>Work Orders</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Work Orders</h1>
+        <div class="sub">@_total work order(s) — the asset is Under maintenance until it is closed</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ Work Order</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar ams-filters">
+        <select @bind="_status" @bind:after="FilterAsync">
+            <option value="">All statuses</option>
+            <option value="@WorkOrderStatus.Open">Open</option>
+            <option value="@WorkOrderStatus.Closed">Closed</option>
+        </select>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No work orders.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr>
+                    <th>Asset</th><th>Type</th><th>Problem</th><th>Technician</th><th>Vendor</th>
+                    <th>Start</th><th>End</th><th>Cost</th><th>Status</th><th>From incident</th>
+                    <th>Opened by</th><th class="actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var w in _rows)
+                {
+                    <tr>
+                        <td><a class="ams-link" href="assets/@w.AssetId">@w.Asset?.AssetNumber</a> @w.Asset?.Name</td>
+                        <td>@(w.MaintenanceType?.ToString() ?? "—")</td>
+                        <td>@(w.Problem ?? "—")</td>
+                        <td>@(w.Technician?.Name ?? "—")</td>
+                        <td>@(w.Vendor?.Name ?? "—")</td>
+                        <td>@w.StartDate?.ToString("yyyy-MM-dd")</td>
+                        <td>@w.EndDate?.ToString("yyyy-MM-dd")</td>
+                        <td>@(w.Cost?.ToString("N2") ?? "—")</td>
+                        <td>@w.Status</td>
+                        <td>@(w.IncidentId is null ? "—" : "#" + w.IncidentId)</td>
+                        <td><UserName Id="w.CreatedById" Names="_userNames" /></td>
+                        <td class="actions">
+                            @if (w.Status != WorkOrderStatus.Closed)
+                            {
+                                <button class="ams-btn link" @onclick="() => OpenClose(w.Id)">Close</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <Pager Page="_page" Total="_total" PageChanged="GoToAsync" />
+    }
+</div>
+
+<ModalForm Visible="_open" Title="Open work order" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Asset *</label>
+            @if (_assets.Count == 0)
+            {
+                <div class="ams-readonly">No asset is available — the asset must be active, not disposed, not already in maintenance and not in transit.</div>
+            }
+            else
+            {
+                <select @bind="_assetId">
+                    <option value="0">— select —</option>
+                    @foreach (var a in _assets)
+                    {
+                        <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="ams-field">
+            <label>Maintenance type *</label>
+            <select @bind="_type">
+                <option value="@MaintenanceType.Preventive">Preventive</option>
+                <option value="@MaintenanceType.Corrective">Corrective</option>
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Technician</label>
+            <select @bind="_technicianId">
+                <option value="">— none —</option>
+                @foreach (var e in _employees)
+                {
+                    <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Vendor</label>
+            <select @bind="_vendorId">
+                <option value="">— none —</option>
+                @foreach (var v in _vendors)
+                {
+                    <option value="@v.Id">@v.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Start date *</label>
+            <input type="date" @bind="_startDate" />
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Problem</label>
+        <textarea rows="2" @bind="_problem"></textarea>
+    </div>
+
+    <p class="ams-hint">The asset becomes <strong>Under maintenance</strong> as soon as the work order is opened.</p>
+</ModalForm>
+
+<ModalForm Visible="_closeId is not null" Title="Close work order" OnSave="CloseWorkOrderAsync" OnCancel="CancelClose">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>End date *</label>
+            <input type="date" @bind="_endDate" />
+        </div>
+
+        <div class="ams-field">
+            <label>Cost</label>
+            <input type="number" step="0.01" @bind="_cost" />
+        </div>
+
+        <div class="ams-field">
+            <label>Downtime (hours)</label>
+            <input type="number" step="0.01" @bind="_downtime" />
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Work done</label>
+        <textarea rows="2" @bind="_workDone"></textarea>
+    </div>
+
+    <div class="ams-field">
+        <label>Parts used</label>
+        <textarea rows="2" @bind="_partsUsed"></textarea>
+    </div>
+
+    <p class="ams-hint">
+        On closing, the asset goes back <strong>In store</strong>, its custodian is cleared
+        and the open custody is closed.
+    </p>
+</ModalForm>
+
+@code {
+    [SupplyParameterFromQuery] public int? AssetId { get; set; }
+
+    private List<WorkOrder>? _rows;
+    private List<Asset> _assets = new();
+    private List<Employee> _employees = new();
+    private List<Vendor> _vendors = new();
+    private Dictionary<int, string> _userNames = new();
+
+    private string _status = string.Empty;
+    private int _total;
+    private int _page = 1;
+
+
+    private bool _open;
+    private int _assetId;
+    private MaintenanceType _type = MaintenanceType.Corrective;
+    private int? _technicianId;
+    private int? _vendorId;
+    private DateTime _startDate = DateTime.Today;
+    private string? _problem;
+
+    private int? _closeId;
+    private DateTime _endDate = DateTime.Today;
+    private decimal? _cost;
+    private decimal? _downtime;
+    private string? _workDone;
+    private string? _partsUsed;
+
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _employees = await Employees.GetAllAsync();
+            _vendors = await Vendors.GetAllAsync();
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+
+        if (AssetId is int id)
+        {
+            OpenNew();
+            if (_assets.Any(a => a.Id == id)) _assetId = id;
+            else _error = "No work order can be opened for that asset right now.";
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var result = await WorkOrders.GetAllAsync(string.IsNullOrEmpty(_status) ? null : _status, _page);
+            _rows = result.Items;
+            _total = result.Total;
+            _assets = await WorkOrders.GetMaintainableAssetsAsync();
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+
+    private async Task GoToAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
+
+    private async Task FilterAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private void OpenNew()
+    {
+        _assetId = 0;
+        _type = MaintenanceType.Corrective;
+        _technicianId = null;
+        _vendorId = null;
+        _startDate = DateTime.Today;
+        _problem = null;
+        _error = null;
+        _open = true;
+    }
+
+    private void Close() => _open = false;
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_assetId == 0) { _error = "Asset is required."; return; }
+        if (_startDate == default) { _error = "The start date is required."; return; }
+
+        try
+        {
+            await WorkOrders.CreateAsync(new WorkOrderInput(_assetId, _type, _problem, _technicianId, _vendorId, _startDate));
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private void OpenClose(int id)
+    {
+        _closeId = id;
+        _endDate = DateTime.Today;
+        _cost = null;
+        _downtime = null;
+        _workDone = null;
+        _partsUsed = null;
+        _error = null;
+    }
+
+    private void CancelClose() => _closeId = null;
+
+    private async Task CloseWorkOrderAsync()
+    {
+        if (_closeId is null) return;
+        if (_endDate == default) { _error = "The end date is required."; return; }
+
+        try
+        {
+            await WorkOrders.CloseAsync(new WorkOrderClosure(_closeId.Value, _workDone, _partsUsed, _cost, _downtime, _endDate));
+            _closeId = null;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+}

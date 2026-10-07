@@ -1,0 +1,310 @@
+﻿@page "/assets/new"
+@page "/assets/{Id:int}/edit"
+@inject IAssetService Assets
+@inject ICrudService<Category> Categories
+@inject ICrudService<Brand> Brands
+@inject ICrudService<AssetStatus> Statuses
+@inject ICrudService<Supplier> Suppliers
+@inject ICrudService<Location> Locations
+@inject ICrudService<Department> Departments
+@inject ICrudService<Employee> Employees
+@inject NavigationManager Nav
+
+<PageTitle>@(IsNew ? "Register Asset" : "Edit Asset")</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>@(IsNew ? "Register Asset" : $"Edit {_asset?.AssetNumber}")</h1>
+        <div class="sub">@(IsNew ? "Add a new asset to the register" : _asset?.Name)</div>
+    </div>
+    <button class="ams-btn ghost" @onclick="Cancel">Cancel</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+@if (_asset is null)
+{
+    <div class="ams-empty">@(_notFound ? "Asset not found." : "Loading…")</div>
+}
+else
+{
+    @* ------------------------------------------------ Basic *@
+    <section class="ams-section">
+        <h2>Basic information</h2>
+        <div class="ams-grid">
+            <div class="ams-field">
+                <label>Asset number @(IsNew && _preview is null ? "*" : "")</label>
+                @if (!IsNew)
+                {
+                    <div class="ams-readonly">@_asset.AssetNumber</div>
+                }
+                else if (_preview is not null)
+                {
+                    <div class="ams-readonly">@_preview <span class="ams-muted">(generated on save)</span></div>
+                }
+                else
+                {
+                    <input @bind="_asset.AssetNumber" placeholder="This category has no prefix — type the number" />
+                }
+            </div>
+            <div class="ams-field">
+                <label>Name *</label>
+                <input @bind="_asset.Name" />
+            </div>
+            <div class="ams-field">
+                <label>Category *</label>
+                <select @bind="_asset.CategoryId" @bind:after="UpdatePreviewAsync">
+                    <option value="0">— select —</option>
+                    @foreach (var c in _categories)
+                    {
+                        <option value="@c.Id">@c.Name @(string.IsNullOrWhiteSpace(c.NumberingPrefix) ? "" : $"({c.NumberingPrefix})")</option>
+                    }
+                </select>
+            </div>
+            <div class="ams-field">
+                <label>Status *</label>
+                <select @bind="_asset.StatusId">
+                    <option value="0">— select —</option>
+                    @foreach (var s in _statuses)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="ams-field">
+                <label>Brand</label>
+                <select @bind="_asset.BrandId">
+                    <option value="">— none —</option>
+                    @foreach (var b in _brands)
+                    {
+                        <option value="@b.Id">@b.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="ams-field"><label>Model</label><input @bind="_asset.Model" /></div>
+            <div class="ams-field"><label>Serial number</label><input @bind="_asset.SerialNumber" /></div>
+            <div class="ams-field"><label>Tag / barcode</label><input @bind="_asset.TagOrBarcodeNumber" /></div>
+            <div class="ams-field"><label>Legacy asset number</label><input @bind="_asset.LegacyAssetNumber" /></div>
+            <div class="ams-field"><label>Condition</label><input @bind="_asset.Condition" /></div>
+            <div class="ams-field">
+                <label>Part of (parent asset)</label>
+                <select @bind="_asset.ParentAssetId">
+                    <option value="">— none —</option>
+                    @foreach (var a in _parents)
+                    {
+                        <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="ams-field">
+            <label>Description</label>
+            <textarea rows="2" @bind="_asset.Description"></textarea>
+        </div>
+    </section>
+
+    @* ------------------------------------------------ Purchase *@
+    <section class="ams-section">
+        <h2>Purchase</h2>
+        <div class="ams-grid">
+            <div class="ams-field">
+                <label>Supplier</label>
+                <select @bind="_asset.SupplierId">
+                    <option value="">— none —</option>
+                    @foreach (var s in _suppliers)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="ams-field"><label>Purchase order no.</label><input @bind="_asset.PurchaseOrderNumber" /></div>
+            <div class="ams-field"><label>Invoice no.</label><input @bind="_asset.InvoiceNumber" /></div>
+            <div class="ams-field"><label>Purchase date</label><input type="date" @bind="_asset.PurchaseDate" /></div>
+            <div class="ams-field"><label>Purchase cost</label><input type="number" step="0.01" @bind="_asset.PurchaseCost" /></div>
+            <div class="ams-field"><label>Currency</label><input @bind="_asset.Currency" /></div>
+            <div class="ams-field"><label>Funding source</label><input @bind="_asset.FundingSource" /></div>
+        </div>
+    </section>
+
+    @* ------------------------------------------------ Warranty & insurance *@
+    <section class="ams-section">
+        <h2>Warranty &amp; insurance</h2>
+        <div class="ams-grid">
+            <div class="ams-field"><label>Warranty start</label><input type="date" @bind="_asset.WarrantyStart" /></div>
+            <div class="ams-field"><label>Warranty end</label><input type="date" @bind="_asset.WarrantyEnd" /></div>
+            <div class="ams-field"><label>Insurance policy no.</label><input @bind="_asset.InsurancePolicyNumber" /></div>
+            <div class="ams-field"><label>Insurer</label><input @bind="_asset.Insurer" /></div>
+            <div class="ams-field"><label>Insured value</label><input type="number" step="0.01" @bind="_asset.InsuredValue" /></div>
+            <div class="ams-field"><label>Insurance expiry</label><input type="date" @bind="_asset.InsuranceExpiryDate" /></div>
+        </div>
+    </section>
+
+    @* ------------------------------------------------ Location & custody *@
+    <section class="ams-section">
+        <h2>Location &amp; custody</h2>
+        @if (IsNew)
+        {
+            <p class="ams-hint">
+                Where the asset is right now. After registration these can only change through transactions
+                (Assignment, Transfer, Return). Choosing a custodian registers the asset as <strong>Assigned</strong>;
+                otherwise it starts <strong>In store</strong>.
+            </p>
+            <div class="ams-grid">
+                <div class="ams-field">
+                    <label>Location</label>
+                    <select @bind="_asset.LocationId">
+                        <option value="">— none —</option>
+                        @foreach (var l in _locations)
+                        {
+                            <option value="@l.Id">@l.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="ams-field">
+                    <label>Department</label>
+                    <select @bind="_asset.DepartmentId">
+                        <option value="">— none —</option>
+                        @foreach (var d in _departments)
+                        {
+                            <option value="@d.Id">@d.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="ams-field">
+                    <label>Custodian</label>
+                    <select @bind="_asset.CustodianId">
+                        <option value="">— none (in store) —</option>
+                        @foreach (var e in _employees)
+                        {
+                            <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        }
+        else
+        {
+            <p class="ams-hint">These change only through transactions, so the asset's history stays complete.</p>
+            <div class="ams-grid">
+                <div class="ams-field"><label>Stage</label><div class="ams-readonly"><StageBadge Stage="_asset.LifecycleStage" /></div></div>
+                <div class="ams-field"><label>Location</label><div class="ams-readonly">@(_asset.Location?.Name ?? "—")</div></div>
+                <div class="ams-field"><label>Department</label><div class="ams-readonly">@(_asset.Department?.Name ?? "—")</div></div>
+                <div class="ams-field"><label>Custodian</label><div class="ams-readonly">@(_asset.Custodian?.Name ?? "—")</div></div>
+            </div>
+        }
+    </section>
+
+    @* ------------------------------------------------ Notes *@
+    <section class="ams-section">
+        <h2>Notes</h2>
+        <div class="ams-field">
+            <textarea rows="3" @bind="_asset.Notes"></textarea>
+        </div>
+    </section>
+
+    <div class="ams-form-actions">
+        <button class="ams-btn ghost" @onclick="Cancel">Cancel</button>
+        <button class="ams-btn" @onclick="SaveAsync" disabled="@_saving">@(IsNew ? "Register asset" : "Save changes")</button>
+    </div>
+}
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    private bool IsNew => Id is null;
+
+    private Asset? _asset;
+    private string? _preview;
+    private bool _notFound;
+    private bool _saving;
+    private string? _error;
+
+    private List<Category> _categories = new();
+    private List<Brand> _brands = new();
+    private List<AssetStatus> _statuses = new();
+    private List<Supplier> _suppliers = new();
+    private List<Location> _locations = new();
+    private List<Department> _departments = new();
+    private List<Employee> _employees = new();
+    private List<Asset> _parents = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _categories = await Categories.GetAllAsync();
+            _brands = await Brands.GetAllAsync();
+            _statuses = await Statuses.GetAllAsync();
+            _suppliers = await Suppliers.GetAllAsync();
+            _locations = await Locations.GetAllAsync();
+            _departments = await Departments.GetAllAsync();
+            _employees = await Employees.GetAllAsync();
+
+            if (IsNew)
+            {
+                _asset = new Asset();
+                // PageSize 0 = no paging: the "Part of" list needs every asset.
+                _parents = (await Assets.SearchAsync(new AssetFilter(PageSize: 0))).Items;
+            }
+            else
+            {
+                _asset = await Assets.GetDetailsAsync(Id!.Value);
+                _notFound = _asset is null;
+                _parents = (await Assets.SearchAsync(new AssetFilter(PageSize: 0))).Items
+                    .Where(a => a.Id != Id)
+                    .ToList();
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task UpdatePreviewAsync()
+    {
+        if (!IsNew || _asset is null) return;
+
+        _preview = _asset.CategoryId == 0 ? null : await Assets.PreviewNextNumberAsync(_asset.CategoryId);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_asset is null) return;
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_asset.Name)) { _error = "Name is required."; return; }
+        if (_asset.CategoryId == 0) { _error = "Category is required."; return; }
+        if (_asset.StatusId == 0) { _error = "Status is required."; return; }
+        if (IsNew && _preview is null && string.IsNullOrWhiteSpace(_asset.AssetNumber))
+        {
+            _error = "Asset number is required because this category has no numbering prefix.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            if (IsNew)
+            {
+                var newId = await Assets.RegisterAsync(_asset);
+                Nav.NavigateTo($"assets/{newId}");
+            }
+            else
+            {
+                await Assets.UpdateDetailsAsync(_asset);
+                Nav.NavigateTo($"assets/{_asset.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.InnerException?.Message ?? ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void Cancel() => Nav.NavigateTo(IsNew ? "assets" : $"assets/{Id}");
+}

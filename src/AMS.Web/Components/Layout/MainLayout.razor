@@ -1,0 +1,45 @@
+@inherits LayoutComponentBase
+
+<div class="ams-shell @(_navOpen ? "nav-open" : "")">
+    <aside class="ams-sidebar">
+        <NavMenu />
+    </aside>
+
+    <div class="ams-backdrop" @onclick="CloseNav"></div>
+
+    <div class="ams-main">
+        <header class="ams-topbar">
+            <button class="ams-burger" @onclick="ToggleNav" aria-label="Toggle navigation">&#9776;</button>
+            <span class="ams-topbar-title">Asset Management System</span>
+            <AuthorizeView>
+                <Authorized>
+                    <span class="ams-topbar-user">@context.User.Identity?.Name</span>
+                    <button class="ams-btn ghost" @onclick="Logout">Logout</button>
+                </Authorized>
+            </AuthorizeView>
+        </header>
+
+        <main class="ams-content">
+            @Body
+        </main>
+    </div>
+</div>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">&#128473;</a>
+</div>
+
+@inject NavigationManager Nav
+
+@code {
+    private bool _navOpen;
+
+    // forceLoad: the logout page must run as a plain HTTP request to remove the cookie.
+    private void Logout() => Nav.NavigateTo("account/logout", forceLoad: true);
+
+    private void ToggleNav() => _navOpen = !_navOpen;
+
+    private void CloseNav() => _navOpen = false;
+}

@@ -1,0 +1,30 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+
+@* Minimal layout for Login / Logout / Setup: no sidebar, no links to protected pages. *@
+
+<div class="ams-auth-page">
+    <div class="ams-auth-card">
+        <div class="ams-auth-brand">
+            <span class="ams-brand-mark">AMS</span>
+            <span>Asset Management</span>
+        </div>
+        @Body
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        // Account pages must run as plain HTTP pages (they write the login cookie).
+        // If one was reached through in-app navigation, e.g. the browser Back button,
+        // there is no HttpContext - reload it as a normal HTTP page.
+        if (HttpContext is null)
+        {
+            Nav.Refresh(forceReload: true);
+        }
+    }
+}

@@ -1,0 +1,31 @@
+@page "/account/logout"
+@layout AMS.Web.Components.Layout.AuthLayout
+@attribute [AllowAnonymous]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject IAccountService Account
+@inject NavigationManager Nav
+
+<PageTitle>Signing out</PageTitle>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Reached without HTTP (in-app navigation): AuthLayout reloads the page.
+        if (HttpContext is null) return;
+
+        var idText = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(idText, out var userId))
+        {
+            await Account.LogLogoutAsync(userId);
+        }
+
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
+        Nav.NavigateTo("account/login");
+    }
+}

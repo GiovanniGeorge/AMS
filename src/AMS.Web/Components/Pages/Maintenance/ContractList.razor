@@ -1,0 +1,238 @@
+﻿@page "/maintenance-contracts"
+@inject ICrudService<MaintenanceContract> Contracts
+@inject ICrudService<Vendor> Vendors
+@inject ICrudService<User> Users
+
+<PageTitle>Maintenance Contracts</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Maintenance Contracts (AMC)</h1>
+        <div class="sub">@(_rows?.Count ?? 0) contract(s)@(Expiring > 0 ? $" · {Expiring} ending within 30 days" : "")</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ New Contract</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar ams-filters">
+        <label><input type="checkbox" @bind="_showInactive" @bind:after="LoadAsync" /> Show inactive</label>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No contracts.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr>
+                    <th>Contract no.</th><th>Vendor</th><th>Coverage</th><th>From</th><th>To</th>
+                    <th>State</th><th>Created by</th><th>Status</th><th class="actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in _rows)
+                {
+                    <tr class="@(c.IsActive ? "" : "is-inactive")">
+                        <td>@c.ContractNumber</td>
+                        <td>@(_vendors.FirstOrDefault(v => v.Id == c.VendorId)?.Name ?? "—")</td>
+                        <td>@(c.CoverageDetails ?? "—")</td>
+                        <td>@c.StartDate?.ToString("yyyy-MM-dd")</td>
+                        <td>@c.EndDate?.ToString("yyyy-MM-dd")</td>
+                        <td>
+                            @if (IsExpired(c))
+                            {
+                                <span class="ams-req ams-req-rejected">Expired</span>
+                            }
+                            else if (IsExpiring(c))
+                            {
+                                <span class="ams-req ams-req-pending">Ends soon</span>
+                            }
+                            else
+                            {
+                                <span class="ams-req ams-req-approved">Running</span>
+                            }
+                        </td>
+                        <td><UserName Id="c.CreatedById" Names="_userNames" /></td>
+                        <td><StatusBadge Active="c.IsActive" /></td>
+                        <td class="actions">
+                            <button class="ams-btn link" @onclick="() => OpenEdit(c)">Edit</button>
+                            <button class="ams-btn link @(c.IsActive ? "danger" : "")" @onclick="() => ToggleAsync(c)">
+                                @(c.IsActive ? "Deactivate" : "Activate")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<ModalForm Visible="_open" Title="@(_editId is null ? "New contract" : "Edit contract")" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Contract number *</label>
+            <input @bind="_number" />
+        </div>
+
+        <div class="ams-field">
+            <label>Vendor</label>
+            <select @bind="_vendorId">
+                <option value="">— none —</option>
+                @foreach (var v in _vendors)
+                {
+                    <option value="@v.Id">@v.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Start date</label>
+            <input type="date" @bind="_startDate" />
+        </div>
+
+        <div class="ams-field">
+            <label>End date</label>
+            <input type="date" @bind="_endDate" />
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Coverage</label>
+        <textarea rows="3" @bind="_coverage" placeholder="What the contract covers, response time, excluded parts..."></textarea>
+    </div>
+
+    <p class="ams-hint">A contract whose end date is within 30 days is shown as <strong>Ends soon</strong>.</p>
+</ModalForm>
+
+@code {
+    private List<MaintenanceContract>? _rows;
+    private List<Vendor> _vendors = new();
+    private Dictionary<int, string> _userNames = new();
+    private bool _showInactive;
+
+    private bool _open;
+    private int? _editId;
+    private string? _number;
+    private int? _vendorId;
+    private string? _coverage;
+    private DateTime? _startDate = DateTime.Today;
+    private DateTime? _endDate;
+    private string? _error;
+
+    private int Expiring => _rows?.Count(c => c.IsActive && IsExpiring(c)) ?? 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _vendors = await Vendors.GetAllAsync(true);
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rows = await Contracts.GetAllAsync(_showInactive);
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void OpenNew()
+    {
+        _editId = null;
+        _number = null;
+        _vendorId = null;
+        _coverage = null;
+        _startDate = DateTime.Today;
+        _endDate = null;
+        _error = null;
+        _open = true;
+    }
+
+    private void OpenEdit(MaintenanceContract contract)
+    {
+        _editId = contract.Id;
+        _number = contract.ContractNumber;
+        _vendorId = contract.VendorId;
+        _coverage = contract.CoverageDetails;
+        _startDate = contract.StartDate;
+        _endDate = contract.EndDate;
+        _error = null;
+        _open = true;
+    }
+
+    private void Close() => _open = false;
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_number)) { _error = "The contract number is required."; return; }
+        if (_startDate is not null && _endDate is not null && _endDate < _startDate)
+        {
+            _error = "The end date cannot be before the start date.";
+            return;
+        }
+
+        try
+        {
+            if (_editId is int id)
+            {
+                var existing = await Contracts.GetByIdAsync(id);
+                if (existing is null) { _error = "Contract not found."; return; }
+
+                existing.ContractNumber = _number!.Trim();
+                existing.VendorId = _vendorId;
+                existing.CoverageDetails = _coverage;
+                existing.StartDate = _startDate;
+                existing.EndDate = _endDate;
+
+                await Contracts.UpdateAsync(existing);
+            }
+            else
+            {
+                await Contracts.AddAsync(new MaintenanceContract
+                {
+                    ContractNumber = _number!.Trim(),
+                    VendorId = _vendorId,
+                    CoverageDetails = _coverage,
+                    StartDate = _startDate,
+                    EndDate = _endDate
+                });
+            }
+
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task ToggleAsync(MaintenanceContract contract)
+    {
+        if (contract.IsActive) await Contracts.DeactivateAsync(contract.Id);
+        else await Contracts.ActivateAsync(contract.Id);
+        await LoadAsync();
+    }
+
+    private static bool IsExpired(MaintenanceContract c) =>
+        c.EndDate is DateTime end && end.Date < DateTime.Today;
+
+    private static bool IsExpiring(MaintenanceContract c) =>
+        c.EndDate is DateTime end && end.Date >= DateTime.Today && end.Date <= DateTime.Today.AddDays(30);
+}

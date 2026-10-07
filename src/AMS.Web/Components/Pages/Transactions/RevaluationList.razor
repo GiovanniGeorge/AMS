@@ -1,0 +1,206 @@
+﻿@page "/revaluations"
+@inject IRevaluationService Revaluations
+@inject ICrudService<User> Users
+
+<PageTitle>Revaluations</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Revaluations</h1>
+        <div class="sub">@_total revaluation(s) — a history of values; no approval, the asset is not changed</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ Revalue Asset</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No revaluations.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr>
+                    <th>Date</th><th>Asset</th><th>Old value</th><th>New value</th>
+                    <th>Difference</th><th>Reason</th><th>Recorded by</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.Date?.ToString("yyyy-MM-dd")</td>
+                        <td><a class="ams-link" href="assets/@r.AssetId">@r.Asset?.AssetNumber</a> @r.Asset?.Name</td>
+                        <td>@(r.OldValue?.ToString("N2") ?? "—")</td>
+                        <td>@(r.NewValue?.ToString("N2") ?? "—")</td>
+                        <td>@(r.Difference?.ToString("N2") ?? "—")</td>
+                        <td>@(r.Reason ?? "—")</td>
+                        <td><UserName Id="r.CreatedById" Names="_userNames" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <Pager Page="_page" Total="_total" PageChanged="GoToAsync" />
+    }
+</div>
+
+<ModalForm Visible="_open" Title="Revalue asset" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Asset *</label>
+            @if (_assets.Count == 0)
+            {
+                <div class="ams-readonly">No asset is available — only active assets that are not disposed of.</div>
+            }
+            else
+            {
+                <select @bind="_assetId" @bind:after="OnAssetChangedAsync">
+                    <option value="0">— select —</option>
+                    @foreach (var a in _assets)
+                    {
+                        <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="ams-field">
+            <label>Current value</label>
+            <div class="ams-readonly">@(_oldValue?.ToString("N2") ?? "—")</div>
+        </div>
+
+        <div class="ams-field">
+            <label>New value *</label>
+            <input type="number" step="0.01" @bind="_newValue" />
+        </div>
+
+        <div class="ams-field">
+            <label>Date *</label>
+            <input type="date" @bind="_date" />
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Reason</label>
+        <textarea rows="2" @bind="_reason"></textarea>
+    </div>
+
+    <p class="ams-hint">
+        The current value is the last new value recorded, or the purchase cost when there is none.
+    </p>
+</ModalForm>
+
+@code {
+    [SupplyParameterFromQuery] public int? AssetId { get; set; }
+
+    private List<RevaluationEvent>? _rows;
+    private List<Asset> _assets = new();
+    private Dictionary<int, string> _userNames = new();
+
+    private bool _open;
+    private int _assetId;
+    private decimal? _oldValue;
+    private decimal? _newValue;
+    private DateTime _date = DateTime.Today;
+    private string? _reason;
+    private string? _error;
+    private int _total;
+    private int _page = 1;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username); }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+
+        if (AssetId is int id)
+        {
+            OpenNew();
+            if (_assets.Any(a => a.Id == id))
+            {
+                _assetId = id;
+                await OnAssetChangedAsync();
+            }
+            else
+            {
+                _error = "That asset cannot be revalued.";
+            }
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var result = await Revaluations.GetAllAsync(_page);
+            _rows = result.Items;
+            _total = result.Total;
+            _assets = await Revaluations.GetRevaluableAssetsAsync();
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+
+    private async Task GoToAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
+
+    private async Task FilterAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private void OpenNew()
+    {
+        _assetId = 0;
+        _oldValue = null;
+        _newValue = null;
+        _date = DateTime.Today;
+        _reason = null;
+        _error = null;
+        _open = true;
+    }
+
+    private void Close() => _open = false;
+
+    private async Task OnAssetChangedAsync()
+    {
+        if (_assetId == 0) { _oldValue = null; return; }
+
+        try { _oldValue = await Revaluations.GetCurrentValueAsync(_assetId); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_assetId == 0) { _error = "Asset is required."; return; }
+        if (_newValue is null) { _error = "The new value is required."; return; }
+        if (_date == default) { _error = "The date is required."; return; }
+
+        try
+        {
+            await Revaluations.CreateAsync(new RevaluationInput(_assetId, _newValue.Value, _date, _reason));
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+}

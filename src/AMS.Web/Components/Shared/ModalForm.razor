@@ -1,0 +1,29 @@
+@* Small reusable dialog. No JavaScript, no Bootstrap JS - just markup + CSS. *@
+
+@if (Visible)
+{
+    <div class="ams-modal-backdrop"></div>
+    <div class="ams-modal">
+        <div class="ams-modal-box">
+            <div class="ams-modal-head">
+                <h5>@Title</h5>
+                <button class="ams-btn link" @onclick="OnCancel">&#10005;</button>
+            </div>
+            <div class="ams-modal-body">
+                @ChildContent
+            </div>
+            <div class="ams-modal-foot">
+                <button class="ams-btn ghost" @onclick="OnCancel">Cancel</button>
+                <button class="ams-btn" @onclick="OnSave">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+}

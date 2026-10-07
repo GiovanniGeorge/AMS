@@ -1,0 +1,87 @@
+﻿@page "/stock"
+@inject IStockService Stock
+
+<PageTitle>Stock Balances</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Stock Balances</h1>
+        <div class="sub">@(_rows?.Count ?? 0) line(s) — one per store and item. Read only: it moves with Receive and Stock Adjustment</div>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar ams-filters">
+        <label><input type="checkbox" @bind="_lowOnly" /> Below the minimum level only</label>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (Visible.Count == 0)
+    {
+        <div class="ams-empty">Nothing in stock.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr><th>Store</th><th>Item</th><th>Unit</th><th>Quantity</th><th>Minimum</th><th>Reorder point</th><th>State</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var b in Visible)
+                {
+                    <tr>
+                        <td>@(b.Store?.Name ?? "—")</td>
+                        <td>@(b.Item?.Name ?? "—")</td>
+                        <td>@(b.Item?.UnitOfMeasure?.Name ?? "—")</td>
+                        <td>@b.Quantity.ToString("N2")</td>
+                        <td>@(b.Item?.MinimumLevel?.ToString("N2") ?? "—")</td>
+                        <td>@(b.Item?.ReorderPoint?.ToString("N2") ?? "—")</td>
+                        <td>
+                            @if (IsBelowMinimum(b))
+                            {
+                                <span class="ams-req ams-req-rejected">Below minimum</span>
+                            }
+                            else if (IsAtReorder(b))
+                            {
+                                <span class="ams-req ams-req-pending">Reorder</span>
+                            }
+                            else
+                            {
+                                <span class="ams-req ams-req-approved">OK</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<StockBalance>? _rows;
+    private bool _lowOnly;
+    private string? _error;
+
+    private List<StockBalance> Visible =>
+        _rows is null ? new() : _lowOnly ? _rows.Where(IsBelowMinimum).ToList() : _rows;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _rows = await Stock.GetBalancesAsync(); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private static bool IsBelowMinimum(StockBalance b) =>
+        b.Item?.MinimumLevel is decimal min && b.Quantity < min;
+
+    private static bool IsAtReorder(StockBalance b) =>
+        b.Item?.ReorderPoint is decimal point && b.Quantity <= point;
+}

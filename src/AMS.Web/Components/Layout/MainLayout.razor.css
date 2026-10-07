@@ -1,0 +1,7 @@
+/* Scoped stylesheet for MainLayout.
+   The shell styling lives in wwwroot/app.css so it can be shared with NavMenu;
+   this file exists so the AMS.Web.styles.css bundle is always generated. */
+
+::deep .ams-content > h1:first-child {
+    margin-top: 0;
+}

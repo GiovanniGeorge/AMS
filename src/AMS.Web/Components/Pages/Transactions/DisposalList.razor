@@ -1,0 +1,308 @@
+﻿@page "/disposals"
+@inject IDisposalService Disposals
+@inject ICrudService<User> Users
+@inject ICurrentUserService CurrentUser
+
+<PageTitle>Disposal Requests</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Disposal Requests</h1>
+        <div class="sub">@_total request(s) — once approved the asset becomes Disposed</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ Disposal Request</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar ams-filters">
+        <select @bind="_status" @bind:after="FilterAsync">
+            <option value="">All statuses</option>
+            <option value="@RequestStatus.Pending">Pending</option>
+            <option value="@RequestStatus.Approved">Approved</option>
+            <option value="@RequestStatus.Rejected">Rejected</option>
+        </select>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No disposal requests.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr>
+                    <th>Date</th><th>Asset</th><th>Reason</th><th>Book value</th><th>Proceeds</th>
+                    <th>Gain / loss</th><th>Status</th><th>From incident</th><th>Requested by</th>
+                    <th>Rejection reason</th><th class="actions">Decision</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var d in _rows)
+                {
+                    var asset = d.Lines.FirstOrDefault()?.Asset;
+                    <tr>
+                        <td>@d.RequestDate?.ToString("yyyy-MM-dd")</td>
+                        <td>
+                            @if (asset is not null)
+                            {
+                                <a class="ams-link" href="assets/@asset.Id">@asset.AssetNumber</a>
+                                <span> @asset.Name</span>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </td>
+                        <td>@(d.DisposalReason ?? "—")</td>
+                        <td>@(d.NetBookValue?.ToString("N2") ?? "—")</td>
+                        <td>@(d.SaleProceeds?.ToString("N2") ?? "—")</td>
+                        <td>@(d.GainLoss?.ToString("N2") ?? "—")</td>
+                        <td><RequestStatusBadge Status="@d.Status" /></td>
+                        <td>@(d.IncidentId is null ? "—" : "#" + d.IncidentId)</td>
+                        <td><UserName Id="d.CreatedById" Names="_userNames" /></td>
+                        <td class="ams-reason">@(d.Status == RequestStatus.Rejected ? d.Approval?.Comments : "")</td>
+                        <td class="actions">
+                            @if (d.Status == RequestStatus.Pending && _isApprover)
+                            {
+                                <button class="ams-btn link" @onclick="() => ApproveAsync(d.Id)">Approve</button>
+                                <button class="ams-btn link danger" @onclick="() => OpenReject(d.Id)">Reject</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <Pager Page="_page" Total="_total" PageChanged="GoToAsync" />
+    }
+</div>
+
+<ModalForm Visible="_open" Title="Disposal request" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Asset *</label>
+            @if (_assets.Count == 0)
+            {
+                <div class="ams-readonly">No asset is available — it must be active, not disposed, with no pending request.</div>
+            }
+            else
+            {
+                <select @bind="_assetId" @bind:after="OnAssetChangedAsync">
+                    <option value="0">— select —</option>
+                    @foreach (var a in _assets)
+                    {
+                        <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="ams-field">
+            <label>Request date *</label>
+            <input type="date" @bind="_date" @bind:after="OnAssetChangedAsync" />
+        </div>
+
+        <div class="ams-field">
+            <label>Net book value</label>
+            <input type="number" step="0.01" @bind="_netBookValue" @bind:after="Recalculate" />
+        </div>
+
+        <div class="ams-field">
+            <label>Sale proceeds</label>
+            <input type="number" step="0.01" @bind="_saleProceeds" @bind:after="Recalculate" />
+        </div>
+
+        <div class="ams-field">
+            <label>Gain / loss</label>
+            <div class="ams-readonly">@(_gainLoss?.ToString("N2") ?? "—")</div>
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Reason *</label>
+        <textarea rows="2" @bind="_reasonText"></textarea>
+    </div>
+
+    <p class="ams-hint">
+        The book value is suggested by straight-line depreciation from the purchase cost and the
+        category's useful life (in years) and salvage value — you can change it.
+        Gain / loss = sale proceeds − book value.
+    </p>
+</ModalForm>
+
+<ModalForm Visible="_rejectId is not null" Title="Reject disposal request" OnSave="RejectAsync" OnCancel="CloseReject">
+    <div class="ams-field">
+        <label>Reason * <span class="ams-muted">(the requester will see it)</span></label>
+        <textarea rows="3" @bind="_rejectReason"></textarea>
+    </div>
+</ModalForm>
+
+@code {
+    [SupplyParameterFromQuery] public int? AssetId { get; set; }
+
+    private List<DisposalRequest>? _rows;
+    private List<Asset> _assets = new();
+    private Dictionary<int, string> _userNames = new();
+    private bool _isApprover;
+    private string _status = string.Empty;
+    private int _total;
+    private int _page = 1;
+
+
+    private bool _open;
+    private int _assetId;
+    private DateTime _date = DateTime.Today;
+    private decimal? _netBookValue;
+    private decimal? _saleProceeds;
+    private decimal? _gainLoss;
+    private string? _reasonText;
+
+    private int? _rejectId;
+    private string _rejectReason = string.Empty;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+            _isApprover = await CurrentUser.IsInRoleAsync(AppRoles.Admin);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+
+        if (AssetId is int id)
+        {
+            OpenNew();
+            if (_assets.Any(a => a.Id == id))
+            {
+                _assetId = id;
+                await OnAssetChangedAsync();
+            }
+            else
+            {
+                _error = "No disposal request can be made for that asset.";
+            }
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var result = await Disposals.GetAllAsync(string.IsNullOrEmpty(_status) ? null : _status, _page);
+            _rows = result.Items;
+            _total = result.Total;
+            _assets = await Disposals.GetDisposableAssetsAsync();
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+
+    private async Task GoToAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
+
+    private async Task FilterAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private void OpenNew()
+    {
+        _assetId = 0;
+        _date = DateTime.Today;
+        _netBookValue = null;
+        _saleProceeds = null;
+        _gainLoss = null;
+        _reasonText = null;
+        _error = null;
+        _open = true;
+    }
+
+    private void Close() => _open = false;
+
+    private async Task OnAssetChangedAsync()
+    {
+        if (_assetId == 0) return;
+
+        try
+        {
+            _netBookValue = await Disposals.SuggestNetBookValueAsync(_assetId, _date);
+            Recalculate();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void Recalculate()
+    {
+        _gainLoss = _saleProceeds is null && _netBookValue is null
+            ? null
+            : (_saleProceeds ?? 0m) - (_netBookValue ?? 0m);
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_assetId == 0) { _error = "Asset is required."; return; }
+        if (string.IsNullOrWhiteSpace(_reasonText)) { _error = "A disposal reason is required."; return; }
+        if (_date == default) { _error = "The date is required."; return; }
+
+        try
+        {
+            await Disposals.CreateAsync(new DisposalInput(_assetId, _reasonText, _date, _saleProceeds, _netBookValue));
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task ApproveAsync(int id)
+    {
+        _error = null;
+        try
+        {
+            await Disposals.ApproveAsync(id);
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private void OpenReject(int id)
+    {
+        _rejectId = id;
+        _rejectReason = string.Empty;
+        _error = null;
+    }
+
+    private void CloseReject() => _rejectId = null;
+
+    private async Task RejectAsync()
+    {
+        if (_rejectId is null) return;
+        if (string.IsNullOrWhiteSpace(_rejectReason)) { _error = "A rejection reason is required."; return; }
+
+        try
+        {
+            await Disposals.RejectAsync(_rejectId.Value, _rejectReason);
+            _rejectId = null;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+}

@@ -1,0 +1,66 @@
+﻿## .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Bb]uild[Ll]og.*
+artifacts/
+
+## Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+## Publish output
+publish/
+PublishProfiles/
+*.pubxml
+*.pubxml.user
+*.azurePubxml
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+.nuget/
+
+## Local settings that must never be shared
+## appsettings.json keeps a placeholder server name; the real one lives here.
+appsettings.Development.json
+appsettings.*.local.json
+appsettings.Production.json
+secrets.json
+*.pfx
+*.key
+
+## Databases and logs
+*.mdf
+*.ldf
+*.ndf
+*.bak
+*.log
+logs/
+
+## The single-project version the system was converted from — kept locally as a backup,
+## not part of the published project.
+AssetManagementSystem/
+
+## OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# internal working notes (kept locally, not published)
+AMS-DB-DECISIONS.md
+AMS-REVIEW.md
+docs/AMS-Technical-Notes.pdf

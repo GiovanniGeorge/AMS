@@ -1,0 +1,95 @@
+@page "/account/setup"
+@layout AMS.Web.Components.Layout.AuthLayout
+@attribute [AllowAnonymous]
+@inject IAccountService Account
+@inject NavigationManager Nav
+
+@* First-time setup. Works ONLY while there are no users at all.
+   After the first user is created this page always redirects to Login. *@
+
+<PageTitle>First-time setup</PageTitle>
+
+<h1 class="ams-auth-title">Create the first user</h1>
+<p class="ams-auth-sub">
+    No users exist yet. This page works only once &mdash; after the first user is created it closes permanently.
+</p>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<EditForm Model="Input" method="post" OnSubmit="CreateAsync" FormName="setup">
+    <div class="ams-field">
+        <label for="username">Username</label>
+        <InputText id="username" @bind-Value="Input.Username" autocomplete="username" autofocus />
+    </div>
+    <div class="ams-field">
+        <label for="password">Password</label>
+        <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="new-password" />
+    </div>
+    <div class="ams-field">
+        <label for="confirm">Confirm password</label>
+        <InputText id="confirm" type="password" @bind-Value="Input.ConfirmPassword" autocomplete="new-password" />
+    </div>
+    <button type="submit" class="ams-btn ams-btn-block">Create user</button>
+</EditForm>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm]
+    private SetupModel Input { get; set; } = new();
+
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        // Reached without HTTP (in-app navigation): AuthLayout reloads the page.
+        if (HttpContext is null) return;
+
+        if (await Account.AnyUsersExistAsync())
+        {
+            Nav.NavigateTo("account/login");
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        var username = Input.Username.Trim();
+
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(Input.Password))
+        {
+            _error = "Username and password are required.";
+            return;
+        }
+
+        if (username.Length > 100)
+        {
+            _error = "Username can be at most 100 characters.";
+            return;
+        }
+
+        // The only account in the system: a typo here would lock everyone out.
+        if (Input.Password != Input.ConfirmPassword)
+        {
+            _error = "The two passwords do not match.";
+            return;
+        }
+
+        var created = await Account.CreateFirstUserAsync(username, Input.Password);
+
+        // created == false: another user was created in the meantime. Either way, go to Login.
+        Nav.NavigateTo(created ? "account/login?created=1" : "account/login");
+    }
+
+    private sealed class SetupModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+}

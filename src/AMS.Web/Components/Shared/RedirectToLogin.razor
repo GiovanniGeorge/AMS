@@ -1,0 +1,12 @@
+@inject NavigationManager Nav
+
+@* Shown by AuthorizeRouteView when a page needs a logged-in user.
+   Sends the user to Login and remembers where they were going. *@
+
+@code {
+    protected override void OnInitialized()
+    {
+        var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+        Nav.NavigateTo($"account/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+    }
+}

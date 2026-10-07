@@ -1,0 +1,120 @@
+@page "/account/login"
+@layout AMS.Web.Components.Layout.AuthLayout
+@attribute [AllowAnonymous]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject IAccountService Account
+@inject NavigationManager Nav
+
+<PageTitle>Sign in</PageTitle>
+
+<h1 class="ams-auth-title">Sign in</h1>
+
+@if (Created == "1")
+{
+    <div class="ams-info">Your account was created. You can sign in now.</div>
+}
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<EditForm Model="Input" method="post" OnSubmit="LoginAsync" FormName="login">
+    <div class="ams-field">
+        <label for="username">Username</label>
+        <InputText id="username" @bind-Value="Input.Username" autocomplete="username" autofocus />
+    </div>
+    <div class="ams-field">
+        <label for="password">Password</label>
+        <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password" />
+    </div>
+    <button type="submit" class="ams-btn ams-btn-block">Sign in</button>
+</EditForm>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromForm]
+    private LoginModel Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? Created { get; set; }
+
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        // Reached without HTTP (in-app navigation): AuthLayout reloads the page.
+        if (HttpContext is null) return;
+
+        // No users yet: the first one is created on the setup page.
+        if (!await Account.AnyUsersExistAsync())
+        {
+            Nav.NavigateTo("account/setup");
+        }
+    }
+
+    private async Task LoginAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Input.Username) || string.IsNullOrWhiteSpace(Input.Password))
+        {
+            _error = "Enter your username and password.";
+            return;
+        }
+
+        var result = await Account.ValidateCredentialsAsync(Input.Username.Trim(), Input.Password);
+        if (result is null)
+        {
+            _error = "Invalid username or password.";
+            return;
+        }
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, result.UserId.ToString()),
+            new(ClaimTypes.Name, result.Username)
+        };
+        claims.AddRange(result.Roles.Select(role => new Claim(ClaimTypes.Role, role)));
+
+        var principal = new ClaimsPrincipal(
+            new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
+
+        // IsPersistent: the cookie survives closing the browser (default lifetime 14 days).
+        await HttpContext!.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            principal,
+            new AuthenticationProperties { IsPersistent = true });
+
+        // Do NOT put this inside try/catch: on a plain HTTP page NavigateTo works by
+        // throwing, and the framework turns that into a redirect.
+        Nav.NavigateTo(GetSafeReturnUrl());
+    }
+
+    // Only redirect inside this site - never to another website ("open redirect").
+    private string GetSafeReturnUrl()
+    {
+        if (!string.IsNullOrEmpty(ReturnUrl)
+            && ReturnUrl.StartsWith('/')
+            && !ReturnUrl.StartsWith("//")
+            && !ReturnUrl.StartsWith("/\\"))
+        {
+            return ReturnUrl;
+        }
+
+        return "/";
+    }
+
+    private sealed class LoginModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

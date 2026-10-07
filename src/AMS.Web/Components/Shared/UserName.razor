@@ -1,0 +1,13 @@
+@* Shows the username for a user Id such as CreatedById.
+   Shows "—" when the Id is empty (e.g. rows created before login existed) or unknown. *@
+
+@Text
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    /// <summary>User Id → Username, loaded once by the page.</summary>
+    [Parameter] public IReadOnlyDictionary<int, string> Names { get; set; } = new Dictionary<int, string>();
+
+    private string Text => Id is int id && Names.TryGetValue(id, out var name) ? name : "—";
+}

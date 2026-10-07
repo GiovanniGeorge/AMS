@@ -1,0 +1,7 @@
+@* Badge for a request status: Pending / Approved / Rejected. *@
+
+<span class="ams-req ams-req-@((Status ?? "none").ToLowerInvariant())">@(Status ?? "—")</span>
+
+@code {
+    [Parameter] public string? Status { get; set; }
+}

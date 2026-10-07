@@ -1,0 +1,362 @@
+﻿@page "/assets/{Id:int}"
+@inject IAssetService Assets
+@inject ICrudService<User> Users
+@inject IAttachmentService Attachments
+@inject NavigationManager Nav
+
+<PageTitle>@(_asset?.AssetNumber ?? "Asset")</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+@if (_asset is null)
+{
+    <div class="ams-empty">@(_notFound ? "Asset not found." : "Loading…")</div>
+}
+else
+{
+    <div class="ams-page-head">
+        <div>
+            <h1>@_asset.AssetNumber — @_asset.Name</h1>
+            <div class="sub">
+                <StageBadge Stage="_asset.LifecycleStage" />
+                @if (!_asset.IsActive)
+                {
+                    <span class="ams-badge off" style="margin-left:6px;">Inactive</span>
+                }
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo("assets")'>Back to register</button>
+            <button class="ams-btn" @onclick='() => Nav.NavigateTo($"assets/{Id}/edit")'>Edit</button>
+        </div>
+    </div>
+
+    @* ------------------------------------------------ Current state *@
+    <section class="ams-section">
+        <h2>Current state</h2>
+        <dl class="ams-dl">
+            <div><dt>Stage</dt><dd><StageBadge Stage="_asset.LifecycleStage" /></dd></div>
+            <div><dt>Status</dt><dd>@Show(_asset.Status?.Name)</dd></div>
+            <div><dt>Condition</dt><dd>@Show(_asset.Condition)</dd></div>
+            <div><dt>Location</dt><dd>@Show(_asset.Location?.Name)</dd></div>
+            <div><dt>Department</dt><dd>@Show(_asset.Department?.Name)</dd></div>
+            <div><dt>Custodian</dt><dd>@Show(_asset.Custodian?.Name)</dd></div>
+        </dl>
+
+        @* What can be done with the asset depends on where it is in its life. *@
+        @if (_asset.IsActive && _asset.LifecycleStage != LifecycleStage.Disposed)
+        {
+            <div class="ams-toolbar" style="margin-top:12px;gap:8px;flex-wrap:wrap;">
+                @if (_asset.LifecycleStage == LifecycleStage.InStore)
+                {
+                    <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo($"issuance/new?assetId={Id}")'>Issue asset</button>
+                }
+                else if (_asset.LifecycleStage == LifecycleStage.Assigned)
+                {
+                    <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo($"returns?assetId={Id}")'>Return to store</button>
+                }
+
+                @if (_asset.LifecycleStage == LifecycleStage.InStore || _asset.LifecycleStage == LifecycleStage.Assigned)
+                {
+                    <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo($"transfers?assetId={Id}")'>Transfer</button>
+                    <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo($"incidents?assetId={Id}")'>Report incident</button>
+                    <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo($"workorders?assetId={Id}")'>Work order</button>
+                    <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo($"disposals?assetId={Id}")'>Disposal request</button>
+                    <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo($"revaluations?assetId={Id}")'>Revalue</button>
+                }
+                else if (_asset.LifecycleStage == LifecycleStage.InTransit)
+                {
+                    <a class="ams-link" href="transfers">In transit &mdash; confirm its receipt in Transfers</a>
+                }
+                else if (_asset.LifecycleStage == LifecycleStage.UnderMaintenance)
+                {
+                    <a class="ams-link" href="workorders">Under maintenance &mdash; close its work order in Work Orders</a>
+                }
+            </div>
+        }
+    </section>
+
+    @* ------------------------------------------------ Details *@
+    <section class="ams-section">
+        <h2>Details</h2>
+        <dl class="ams-dl">
+            <div><dt>Category</dt><dd>@Show(_asset.Category?.Name)</dd></div>
+            <div><dt>Brand</dt><dd>@Show(_asset.Brand?.Name)</dd></div>
+            <div><dt>Model</dt><dd>@Show(_asset.Model)</dd></div>
+            <div><dt>Serial number</dt><dd>@Show(_asset.SerialNumber)</dd></div>
+            <div><dt>Tag / barcode</dt><dd>@Show(_asset.TagOrBarcodeNumber)</dd></div>
+            <div><dt>Legacy number</dt><dd>@Show(_asset.LegacyAssetNumber)</dd></div>
+            <div>
+                <dt>Part of</dt>
+                <dd>
+                    @if (_asset.ParentAsset is not null)
+                    {
+                        <a class="ams-link" href="assets/@_asset.ParentAsset.Id">@_asset.ParentAsset.AssetNumber — @_asset.ParentAsset.Name</a>
+                    }
+                    else
+                    {
+                        <span>—</span>
+                    }
+                </dd>
+            </div>
+        </dl>
+        @if (!string.IsNullOrWhiteSpace(_asset.Description))
+        {
+            <p class="ams-text">@_asset.Description</p>
+        }
+    </section>
+
+    <section class="ams-section">
+        <h2>Purchase</h2>
+        <dl class="ams-dl">
+            <div><dt>Supplier</dt><dd>@Show(_asset.Supplier?.Name)</dd></div>
+            <div><dt>Purchase order no.</dt><dd>@Show(_asset.PurchaseOrderNumber)</dd></div>
+            <div><dt>Invoice no.</dt><dd>@Show(_asset.InvoiceNumber)</dd></div>
+            <div><dt>Purchase date</dt><dd>@Show(_asset.PurchaseDate?.ToString("yyyy-MM-dd"))</dd></div>
+            <div><dt>Purchase cost</dt><dd>@Show(_asset.PurchaseCost?.ToString("N2"), _asset.Currency)</dd></div>
+            <div><dt>Funding source</dt><dd>@Show(_asset.FundingSource)</dd></div>
+        </dl>
+    </section>
+
+    <section class="ams-section">
+        <h2>Warranty &amp; insurance</h2>
+        <dl class="ams-dl">
+            <div><dt>Warranty</dt><dd>@Show(Range(_asset.WarrantyStart, _asset.WarrantyEnd))</dd></div>
+            <div><dt>Policy no.</dt><dd>@Show(_asset.InsurancePolicyNumber)</dd></div>
+            <div><dt>Insurer</dt><dd>@Show(_asset.Insurer)</dd></div>
+            <div><dt>Insured value</dt><dd>@Show(_asset.InsuredValue?.ToString("N2"))</dd></div>
+            <div><dt>Insurance expiry</dt><dd>@Show(_asset.InsuranceExpiryDate?.ToString("yyyy-MM-dd"))</dd></div>
+        </dl>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(_asset.Notes))
+    {
+        <section class="ams-section">
+            <h2>Notes</h2>
+            <p class="ams-text">@_asset.Notes</p>
+        </section>
+    }
+
+    @* ------------------------------------------------ Components *@
+    <section class="ams-section">
+        <h2>Components (@_components.Count)</h2>
+        @if (_components.Count == 0)
+        {
+            <p class="ams-hint">No assets are registered as part of this one.</p>
+        }
+        else
+        {
+            <ul class="ams-list">
+                @foreach (var c in _components)
+                {
+                    <li>
+                        <a class="ams-link" href="assets/@c.Id">@c.AssetNumber</a> — @c.Name
+                        <StageBadge Stage="c.LifecycleStage" />
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+
+    @* ------------------------------------------------ Attachments *@
+    <section class="ams-section">
+        <h2>Attachments (@_files.Count)</h2>
+
+        @if (_fileError is not null)
+        {
+            <div class="ams-alert">@_fileError</div>
+        }
+
+        @if (_files.Count == 0)
+        {
+            <p class="ams-hint">No file attached yet.</p>
+        }
+        else
+        {
+            <table class="ams-table">
+                <thead>
+                    <tr><th>File</th><th>Kind</th><th>Size</th><th>Uploaded</th><th>By</th><th class="actions">Actions</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var f in _files)
+                    {
+                        <tr>
+                            <td>@f.FileName</td>
+                            <td>@(f.DocumentType ?? f.FileType ?? "—")</td>
+                            <td>@Size(f.FileSize)</td>
+                            <td>@f.UploadedOn?.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td><UserName Id="f.UploadedById" Names="_userNames" /></td>
+                            <td class="actions">
+                                @if (_ready.TryGetValue(f.Id, out var url))
+                                {
+                                    <a class="ams-btn link" href="@url" download="@f.FileName">Download</a>
+                                }
+                                else
+                                {
+                                    <button class="ams-btn link" @onclick="() => PrepareAsync(f.Id)">Get file</button>
+                                }
+                                <button class="ams-btn link danger" @onclick="() => RemoveFileAsync(f.Id)">Remove</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <div class="ams-grid" style="margin-top:12px;">
+            <div class="ams-field">
+                <label>Kind</label>
+                <input @bind="_documentType" placeholder="Photo / Invoice / Warranty ..." />
+            </div>
+            <div class="ams-field">
+                <label>Add a file (max 5 MB)</label>
+                <InputFile OnChange="UploadAsync" />
+            </div>
+        </div>
+        <p class="ams-hint">Files are kept inside the database. "Remove" deactivates the file, it is never deleted.</p>
+    </section>
+
+    @* ------------------------------------------------ Lifecycle history *@
+    <section class="ams-section">
+        <h2>Lifecycle history</h2>
+        @if (_history.Count <= 1)
+        {
+            <p class="ams-hint">
+                Only the registration so far. Assignments, transfers, returns, maintenance and disposal
+                will appear here once those transactions are recorded.
+            </p>
+        }
+        <ol class="ams-timeline">
+            @foreach (var h in _history.AsEnumerable().Reverse())
+            {
+                <li>
+                    <div class="ams-timeline-date">@h.Date.ToString("yyyy-MM-dd HH:mm")</div>
+                    <div class="ams-timeline-body">
+                        <strong>@h.Type</strong>
+                        @if (!string.IsNullOrWhiteSpace(h.Description))
+                        {
+                            <span> · @h.Description</span>
+                        }
+                        <div class="ams-muted">by <UserName Id="h.UserId" Names="_userNames" /></div>
+                    </div>
+                </li>
+            }
+        </ol>
+    </section>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Asset? _asset;
+    private List<Asset> _components = new();
+    private List<AssetHistoryEntry> _history = new();
+    private Dictionary<int, string> _userNames = new();
+    private List<AttachmentInfo> _files = new();
+    private readonly Dictionary<int, string> _ready = new();   // id -> data: link, built on request
+    private string? _documentType;
+    private string? _fileError;
+    private bool _notFound;
+    private string? _error;
+
+    private const string EntityType = "Asset";
+
+    // Id changes when moving from one asset to another (e.g. clicking a component).
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _asset = await Assets.GetDetailsAsync(Id);
+            _notFound = _asset is null;
+            if (_asset is null) return;
+
+            _components = await Assets.GetComponentsAsync(Id);
+            _history = await Assets.GetHistoryAsync(Id);
+            _files = await Attachments.GetForAsync(EntityType, Id);
+            _ready.Clear();
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        _fileError = null;
+        var file = e.File;
+
+        if (file is null) return;
+
+        if (file.Size > IAttachmentService.MaxBytes)
+        {
+            _fileError = "The file is larger than 5 MB.";
+            return;
+        }
+
+        try
+        {
+            using var stream = file.OpenReadStream(IAttachmentService.MaxBytes);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory);
+
+            await Attachments.AddAsync(new AttachmentInput(
+                EntityType, Id, file.Name, file.ContentType, _documentType, memory.ToArray()));
+
+            _documentType = null;
+            _files = await Attachments.GetForAsync(EntityType, Id);
+        }
+        catch (Exception ex) { _fileError = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    /// <summary>
+    /// Turns the stored bytes into a data: link. Done on request, not for the whole list,
+    /// so opening an asset with ten photos does not pull ten files.
+    /// </summary>
+    private async Task PrepareAsync(int attachmentId)
+    {
+        _fileError = null;
+
+        try
+        {
+            var file = await Attachments.GetWithContentAsync(attachmentId);
+            if (file?.Content is null) { _fileError = "The file is no longer there."; return; }
+
+            var type = string.IsNullOrWhiteSpace(file.FileType) ? "application/octet-stream" : file.FileType;
+            _ready[attachmentId] = $"data:{type};base64,{Convert.ToBase64String(file.Content)}";
+        }
+        catch (Exception ex) { _fileError = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task RemoveFileAsync(int attachmentId)
+    {
+        _fileError = null;
+
+        try
+        {
+            await Attachments.DeactivateAsync(attachmentId);
+            _ready.Remove(attachmentId);
+            _files = await Attachments.GetForAsync(EntityType, Id);
+        }
+        catch (Exception ex) { _fileError = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private static string Size(long? bytes) => bytes switch
+    {
+        null => "—",
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024d:N0} KB",
+        _ => $"{bytes / (1024d * 1024d):N1} MB"
+    };
+
+    private static string Show(params string?[] parts)
+    {
+        var text = string.Join(" ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));
+        return text.Length == 0 ? "—" : text;
+    }
+
+    private static string? Range(DateTime? from, DateTime? to) =>
+        from is null && to is null ? null : $"{from:yyyy-MM-dd} → {to:yyyy-MM-dd}";
+}

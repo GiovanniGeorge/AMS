@@ -1,0 +1,134 @@
+@page "/master/departments"
+@inject ICrudService<Department> Service
+@inject ICrudService<User> UserService
+
+<PageTitle>Departments</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Departments</h1>
+        <div class="sub">Master data &middot; @(_rows?.Count ?? 0) record(s)</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ New Department</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar">
+        <label><input type="checkbox" @bind="_showInactive" @bind:after="LoadAsync" /> Show inactive</label>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No records yet.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr><th>#</th><th>Name</th><th>Parent Department</th><th>Created by</th><th>Status</th><th class="actions">Actions</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr class="@(r.IsActive ? "" : "is-inactive")">
+                        <td>@r.Id</td>
+                        <td>@r.Name</td>
+                        <td>@(r.ParentDepartment?.Name ?? "—")</td>
+                        <td><UserName Id="r.CreatedById" Names="_userNames" /></td>
+                        <td><StatusBadge Active="r.IsActive" /></td>
+                        <td class="actions">
+                            <button class="ams-btn link" @onclick="() => OpenEditAsync(r.Id)">Edit</button>
+                            <button class="ams-btn link @(r.IsActive ? "danger" : "")" @onclick="() => ToggleAsync(r)">
+                                @(r.IsActive ? "Deactivate" : "Activate")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<ModalForm Visible="_editing is not null" Title="@_title" OnSave="SaveAsync" OnCancel="Cancel">
+    @if (_editing is not null)
+    {
+        <div class="ams-field"><label>Name *</label><input @bind="_editing.Name" /></div>
+        <div class="ams-field">
+            <label>Parent Department</label>
+            <select @bind="_editing.ParentDepartmentId">
+                <option value="">— none (top level) —</option>
+                @foreach (var d in _lookup.Where(d => d.Id != _editing.Id))
+                {
+                    <option value="@d.Id">@d.Name</option>
+                }
+            </select>
+        </div>
+    }
+</ModalForm>
+
+@code {
+    private List<Department>? _rows;
+    private List<Department> _lookup = new();
+    private Department? _editing;
+    private string _title = string.Empty;
+    private bool _showInactive;
+    private string? _error;
+    private Dictionary<int, string> _userNames = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rows = await Service.GetAllAsync(_showInactive, d => d.ParentDepartment!); _userNames = (await UserService.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+            _lookup = await Service.GetAllAsync();
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void OpenNew() { _editing = new Department(); _title = "New Department"; _error = null; }
+
+    private async Task OpenEditAsync(int id)
+    {
+        _editing = await Service.GetByIdAsync(id);
+        _title = "Edit Department";
+        _error = null;
+    }
+
+    private void Cancel() { _editing = null; _error = null; }
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null) return;
+        if (string.IsNullOrWhiteSpace(_editing.Name)) { _error = "Name is required."; return; }
+
+        try
+        {
+            _editing.ParentDepartment = null;
+            if (_editing.Id == 0) await Service.AddAsync(_editing);
+            else await Service.UpdateAsync(_editing);
+
+            _editing = null;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task ToggleAsync(Department r)
+    {
+        if (r.IsActive) await Service.DeactivateAsync(r.Id);
+        else await Service.ActivateAsync(r.Id);
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,87 @@
+﻿@*
+    AMS general navigation - the six main sections.
+*@
+
+<div class="ams-brand">
+    <span class="ams-brand-mark">AMS</span>
+    <span class="ams-brand-text">Asset Management</span>
+</div>
+
+<nav class="ams-nav">
+
+    @* 1. Dashboard *@
+    <NavLink class="ams-nav-link ams-nav-top" href="" Match="NavLinkMatch.All">
+        <span class="ams-ico">&#9632;</span> Dashboard
+    </NavLink>
+
+    @* The audit log shows what every user did, so it is for the administrator only. *@
+    <AuthorizeView Roles="@AppRoles.Admin">
+        <Authorized>
+            <NavLink class="ams-nav-link ams-nav-top" href="audit-log">
+                <span class="ams-ico">&#9636;</span> Audit Log
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    @* 2. Master Data *@
+    <details class="ams-group" open>
+        <summary>Master Data</summary>
+        <NavLink class="ams-nav-link" href="master/categories">Categories</NavLink>
+        <NavLink class="ams-nav-link" href="master/brands">Brands</NavLink>
+        <NavLink class="ams-nav-link" href="master/units">Units</NavLink>
+        <NavLink class="ams-nav-link" href="master/locations">Locations</NavLink>
+        <NavLink class="ams-nav-link" href="master/departments">Departments</NavLink>
+        <NavLink class="ams-nav-link" href="master/employees">Employees</NavLink>
+        <NavLink class="ams-nav-link" href="master/asset-statuses">Asset Statuses</NavLink>
+        <NavLink class="ams-nav-link" href="master/suppliers">Suppliers</NavLink>
+        <NavLink class="ams-nav-link" href="master/vendors">Vendors</NavLink>
+        <NavLink class="ams-nav-link" href="master/stores">Stores / Warehouses</NavLink>
+        <NavLink class="ams-nav-link" href="master/items">Items</NavLink>
+        @* Only the administrator can open these two, so only the administrator sees them. *@
+        <AuthorizeView Roles="@AppRoles.Admin">
+            <Authorized>
+                <NavLink class="ams-nav-link" href="master/users">Users</NavLink>
+                <NavLink class="ams-nav-link" href="master/roles">Roles</NavLink>
+            </Authorized>
+        </AuthorizeView>
+    </details>
+
+    @* 3. Assets *@
+    <details class="ams-group" open>
+        <summary>Assets</summary>
+        <NavLink class="ams-nav-link" href="assets">Assets Register</NavLink>
+        <NavLink class="ams-nav-link" href="issuance">Asset Issuance</NavLink>
+        <NavLink class="ams-nav-link" href="transfers">Transfer</NavLink>
+        <NavLink class="ams-nav-link" href="disposals">Disposal Request</NavLink>
+        <NavLink class="ams-nav-link" href="revaluations">Revaluation</NavLink>
+        <NavLink class="ams-nav-link" href="depreciation">Depreciation</NavLink>
+        <NavLink class="ams-nav-link" href="verification">Verification Campaign</NavLink>
+    </details>
+
+    @* 4. Inventory / Store *@
+    <details class="ams-group">
+        <summary>Inventory / Store</summary>
+        <NavLink class="ams-nav-link" href="receives">Receive</NavLink>
+        <NavLink class="ams-nav-link" href="returns">Return</NavLink>
+        <NavLink class="ams-nav-link" href="stock-adjustments">Stock Adjustment</NavLink>
+        <NavLink class="ams-nav-link" href="stock">Stock Balances</NavLink>
+    </details>
+
+    @* 5. Maintenance *@
+    <details class="ams-group">
+        <summary>Maintenance</summary>
+        <NavLink class="ams-nav-link" href="maintenance-plans">Preventive Maintenance</NavLink>
+        <NavLink class="ams-nav-link" href="workorders">Work Orders</NavLink>
+        <NavLink class="ams-nav-link" href="maintenance-contracts">Maintenance Contracts (AMC)</NavLink>
+        <NavLink class="ams-nav-link" href="incidents">Incidents</NavLink>
+    </details>
+
+    @* 6. Procurement *@
+    <details class="ams-group">
+        <summary>Procurement</summary>
+        <NavLink class="ams-nav-link" href="purchase-orders">Purchase Orders</NavLink>
+        <NavLink class="ams-nav-link" href="invoices">Invoices</NavLink>
+        <NavLink class="ams-nav-link" href="master/suppliers">Suppliers</NavLink>
+    </details>
+
+</nav>

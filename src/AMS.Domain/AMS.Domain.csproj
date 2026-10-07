@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- Domain has NO project references and NO NuGet packages on purpose.
+       It is the innermost layer: it must not know about EF Core, Blazor or the database. -->
+
+</Project>

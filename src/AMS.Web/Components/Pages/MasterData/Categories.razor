@@ -1,0 +1,148 @@
+@page "/master/categories"
+@inject ICrudService<Category> Service
+@inject ICrudService<User> UserService
+
+<PageTitle>Categories</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Categories</h1>
+        <div class="sub">Master data &middot; @(_rows?.Count ?? 0) record(s)</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ New Category</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar">
+        <label><input type="checkbox" @bind="_showInactive" @bind:after="LoadAsync" /> Show inactive</label>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No records yet.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr>
+                    <th>#</th><th>Name</th><th>Parent</th><th>Depreciation</th>
+                    <th class="num">Useful Life</th><th class="num">Salvage</th>
+                    <th>GL Code</th><th>Prefix</th><th>Created by</th><th>Status</th><th class="actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr class="@(r.IsActive ? "" : "is-inactive")">
+                        <td>@r.Id</td>
+                        <td>@r.Name</td>
+                        <td>@(r.Parent?.Name ?? "—")</td>
+                        <td>@r.DepreciationMethod</td>
+                        <td class="num">@r.UsefulLife</td>
+                        <td class="num">@r.SalvageValue</td>
+                        <td>@r.GLCode</td>
+                        <td>@r.NumberingPrefix</td>
+                        <td><UserName Id="r.CreatedById" Names="_userNames" /></td>
+                        <td><StatusBadge Active="r.IsActive" /></td>
+                        <td class="actions">
+                            <button class="ams-btn link" @onclick="() => OpenEditAsync(r.Id)">Edit</button>
+                            <button class="ams-btn link @(r.IsActive ? "danger" : "")" @onclick="() => ToggleAsync(r)">
+                                @(r.IsActive ? "Deactivate" : "Activate")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<ModalForm Visible="_editing is not null" Title="@_title" OnSave="SaveAsync" OnCancel="Cancel">
+    @if (_editing is not null)
+    {
+        <div class="ams-field"><label>Name *</label><input @bind="_editing.Name" /></div>
+        <div class="ams-field">
+            <label>Parent Category</label>
+            <select @bind="_editing.ParentId">
+                <option value="">— none (top level) —</option>
+                @foreach (var c in _lookup.Where(c => c.Id != _editing.Id))
+                {
+                    <option value="@c.Id">@c.Name</option>
+                }
+            </select>
+        </div>
+        <div class="ams-field"><label>Depreciation Method</label><input @bind="_editing.DepreciationMethod" /></div>
+        <div class="ams-field"><label>Useful Life</label><input type="number" step="0.01" @bind="_editing.UsefulLife" /></div>
+        <div class="ams-field"><label>Salvage Value</label><input type="number" step="0.01" @bind="_editing.SalvageValue" /></div>
+        <div class="ams-field"><label>GL Code</label><input @bind="_editing.GLCode" /></div>
+        <div class="ams-field"><label>Numbering Prefix</label><input @bind="_editing.NumberingPrefix" /></div>
+    }
+</ModalForm>
+
+@code {
+    private List<Category>? _rows;
+    private List<Category> _lookup = new();
+    private Category? _editing;
+    private string _title = string.Empty;
+    private bool _showInactive;
+    private string? _error;
+    private Dictionary<int, string> _userNames = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rows = await Service.GetAllAsync(_showInactive, c => c.Parent!); _userNames = (await UserService.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+            _lookup = await Service.GetAllAsync();
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void OpenNew() { _editing = new Category(); _title = "New Category"; _error = null; }
+
+    private async Task OpenEditAsync(int id)
+    {
+        _editing = await Service.GetByIdAsync(id);
+        _title = "Edit Category";
+        _error = null;
+    }
+
+    private void Cancel() { _editing = null; _error = null; }
+
+    private async Task SaveAsync()
+    {
+        if (_editing is null) return;
+        if (string.IsNullOrWhiteSpace(_editing.Name)) { _error = "Name is required."; return; }
+
+        try
+        {
+            _editing.Parent = null; // only the FK is saved
+            if (_editing.Id == 0) await Service.AddAsync(_editing);
+            else await Service.UpdateAsync(_editing);
+
+            _editing = null;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task ToggleAsync(Category r)
+    {
+        if (r.IsActive) await Service.DeactivateAsync(r.Id);
+        else await Service.ActivateAsync(r.Id);
+        await LoadAsync();
+    }
+}

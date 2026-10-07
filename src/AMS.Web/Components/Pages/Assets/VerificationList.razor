@@ -1,0 +1,307 @@
+﻿@page "/verification"
+@inject IVerificationService Campaigns
+@inject ICrudService<Location> Locations
+@inject ICrudService<Department> Departments
+@inject ICrudService<Category> Categories
+@inject ICrudService<User> Users
+
+<PageTitle>Verification Campaigns</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Verification Campaigns</h1>
+        <div class="sub">@(_rows?.Count ?? 0) campaign(s) — a physical count of the assets in a scope</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ New Campaign</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No campaigns yet.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr>
+                    <th>Name</th><th>Scope</th><th>From</th><th>To</th><th>Status</th>
+                    <th>Expected assets</th><th>Progress</th><th>Findings</th><th>Created by</th><th class="actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in _rows)
+                {
+                    <tr>
+                        <td>@c.Name</td>
+                        <td>@Scope(c)</td>
+                        <td>@c.StartDate?.ToString("yyyy-MM-dd")</td>
+                        <td>@c.EndDate?.ToString("yyyy-MM-dd")</td>
+                        <td>@c.Status</td>
+                        <td>@(c.ExpectedSnapshot is null ? "—" : Count(c.ExpectedSnapshot) + " asset(s)")</td>
+                        <td>@(c.Progress is null ? "—" : c.Progress.Value.ToString("N0") + "%")</td>
+                        <td class="ams-reason">@(c.Results ?? "—")</td>
+                        <td><UserName Id="c.CreatedById" Names="_userNames" /></td>
+                        <td class="actions">
+                            @if (c.Status != VerificationStatus.Closed)
+                            {
+                                <button class="ams-btn link" @onclick="() => OpenEdit(c)">Edit</button>
+                                <button class="ams-btn link" @onclick="() => SnapshotAsync(c.Id)">Take snapshot</button>
+                            }
+                            @if (c.Status == VerificationStatus.InProgress)
+                            {
+                                <button class="ams-btn link" @onclick="() => OpenResults(c)">Record results</button>
+                            }
+                            @if (c.ExpectedSnapshot is not null)
+                            {
+                                <button class="ams-btn link" @onclick="() => _snapshot = c">View list</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<ModalForm Visible="_open" Title="@(_editId is null ? "New campaign" : "Edit campaign")" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Name *</label>
+            <input @bind="_name" />
+        </div>
+
+        <div class="ams-field">
+            <label>Location</label>
+            <select @bind="_locationId" @bind:after="CountAsync">
+                <option value="">— all —</option>
+                @foreach (var l in _locations)
+                {
+                    <option value="@l.Id">@l.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Department</label>
+            <select @bind="_departmentId" @bind:after="CountAsync">
+                <option value="">— all —</option>
+                @foreach (var d in _departments)
+                {
+                    <option value="@d.Id">@d.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Category</label>
+            <select @bind="_categoryId" @bind:after="CountAsync">
+                <option value="">— all —</option>
+                @foreach (var c in _categories)
+                {
+                    <option value="@c.Id">@c.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Assets in scope now</label>
+            <div class="ams-readonly">@_scopeCount</div>
+        </div>
+
+        <div class="ams-field">
+            <label>Start date</label>
+            <input type="date" @bind="_startDate" />
+        </div>
+
+        <div class="ams-field">
+            <label>End date</label>
+            <input type="date" @bind="_endDate" />
+        </div>
+    </div>
+
+    <p class="ams-hint">
+        Leave a filter empty to include everything. "Take snapshot" then freezes the asset numbers
+        that match, and the campaign moves to <strong>In progress</strong>.
+    </p>
+</ModalForm>
+
+<ModalForm Visible="_resultsId is not null" Title="Record results" OnSave="SaveResultsAsync" OnCancel="() => _resultsId = null">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Progress %</label>
+            <input type="number" step="1" @bind="_progress" />
+        </div>
+
+        <div class="ams-field">
+            <label>Close the campaign</label>
+            <label><input type="checkbox" @bind="_closeCampaign" /> Yes, it is finished</label>
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Findings</label>
+        <textarea rows="4" @bind="_results" placeholder="Assets not found, assets found in another place, condition notes..."></textarea>
+    </div>
+</ModalForm>
+
+<ModalForm Visible="_snapshot is not null" Title="Expected assets" OnSave="() => _snapshot = null" OnCancel="() => _snapshot = null">
+    <p class="ams-text">@_snapshot?.ExpectedSnapshot</p>
+</ModalForm>
+
+@code {
+    private List<VerificationCampaign>? _rows;
+    private List<Location> _locations = new();
+    private List<Department> _departments = new();
+    private List<Category> _categories = new();
+    private Dictionary<int, string> _userNames = new();
+
+    private bool _open;
+    private int? _editId;
+    private string? _name;
+    private int? _locationId;
+    private int? _departmentId;
+    private int? _categoryId;
+    private DateTime? _startDate = DateTime.Today;
+    private DateTime? _endDate;
+    private int _scopeCount;
+
+    private int? _resultsId;
+    private decimal? _progress;
+    private string? _results;
+    private bool _closeCampaign;
+
+    private VerificationCampaign? _snapshot;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _locations = await Locations.GetAllAsync();
+            _departments = await Departments.GetAllAsync();
+            _categories = await Categories.GetAllAsync();
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rows = await Campaigns.GetAllAsync();
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void OpenNew()
+    {
+        _editId = null;
+        _name = null;
+        _locationId = null;
+        _departmentId = null;
+        _categoryId = null;
+        _startDate = DateTime.Today;
+        _endDate = null;
+        _scopeCount = 0;
+        _error = null;
+        _open = true;
+    }
+
+    private async Task OpenEdit(VerificationCampaign campaign)
+    {
+        _editId = campaign.Id;
+        _name = campaign.Name;
+        _locationId = campaign.LocationId;
+        _departmentId = campaign.DepartmentId;
+        _categoryId = campaign.CategoryId;
+        _startDate = campaign.StartDate;
+        _endDate = campaign.EndDate;
+        _error = null;
+        _open = true;
+        await CountAsync();
+    }
+
+    private void Close() => _open = false;
+
+    private async Task CountAsync()
+    {
+        try { _scopeCount = await Campaigns.CountScopeAsync(_locationId, _departmentId, _categoryId); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "The name is required."; return; }
+
+        try
+        {
+            var input = new VerificationInput(_name!, _locationId, _departmentId, _categoryId, _startDate, _endDate);
+
+            if (_editId is int id) await Campaigns.UpdateAsync(id, input);
+            else await Campaigns.CreateAsync(input);
+
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task SnapshotAsync(int id)
+    {
+        _error = null;
+        try
+        {
+            await Campaigns.TakeSnapshotAsync(id);
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private void OpenResults(VerificationCampaign campaign)
+    {
+        _resultsId = campaign.Id;
+        _progress = campaign.Progress;
+        _results = campaign.Results;
+        _closeCampaign = false;
+        _error = null;
+    }
+
+    private async Task SaveResultsAsync()
+    {
+        if (_resultsId is null) return;
+
+        try
+        {
+            await Campaigns.SaveResultsAsync(_resultsId.Value, _progress, _results, _closeCampaign);
+            _resultsId = null;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private string Scope(VerificationCampaign c)
+    {
+        var parts = new[] { c.Location?.Name, c.Department?.Name, c.Category?.Name }
+            .Where(p => !string.IsNullOrWhiteSpace(p));
+        var text = string.Join(" · ", parts);
+        return text.Length == 0 ? "All assets" : text;
+    }
+
+    private static int Count(string snapshot) =>
+        snapshot.Split(',', StringSplitOptions.RemoveEmptyEntries).Length;
+}

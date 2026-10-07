@@ -1,0 +1,194 @@
+﻿@page "/"
+@inject ICrudService<Asset> Assets
+@inject ICrudService<Category> Categories
+@inject ICrudService<Employee> Employees
+@inject ICrudService<Item> Items
+@inject ICrudService<User> Users
+@inject IAssetIssuanceService Issuance
+@inject ITransferService Transfers
+@inject IIncidentService Incidents
+@inject IDisposalService Disposals
+@inject ICurrentUserService CurrentUser
+
+<PageTitle>Dashboard</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Dashboard</h1>
+        <div class="sub">Overview of the asset register</div>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-tiles">
+    <div class="ams-tile"><div class="label">Active Assets</div><div class="value">@_assets</div></div>
+    <div class="ams-tile"><div class="label">Categories</div><div class="value">@_categories</div></div>
+    <div class="ams-tile"><div class="label">Employees</div><div class="value">@_employees</div></div>
+    <div class="ams-tile"><div class="label">Items</div><div class="value">@_items</div></div>
+</div>
+
+@* ------------------------------------------------ Approver: what is waiting *@
+@if (_isApprover)
+{
+    <section class="ams-section" style="margin-top:20px;">
+        <h2>Waiting for your approval (@(_pendingIssuance + _pendingTransfers + _pendingIncidents + _pendingDisposals))</h2>
+        @if (_pendingIssuance + _pendingTransfers + _pendingIncidents + _pendingDisposals == 0)
+        {
+            <p class="ams-hint">Nothing is waiting for your approval.</p>
+        }
+        else
+        {
+            <table class="ams-table">
+                <thead><tr><th>Request type</th><th>Waiting</th><th class="actions">Decide</th></tr></thead>
+                <tbody>
+                    @if (_pendingIssuance > 0)
+                    {
+                        <tr>
+                            <td>Asset issuance</td><td>@_pendingIssuance</td>
+                            <td class="actions"><a class="ams-link" href="issuance">Open</a></td>
+                        </tr>
+                    }
+                    @if (_pendingTransfers > 0)
+                    {
+                        <tr>
+                            <td>Transfers</td><td>@_pendingTransfers</td>
+                            <td class="actions"><a class="ams-link" href="transfers">Open</a></td>
+                        </tr>
+                    }
+                    @if (_pendingIncidents > 0)
+                    {
+                        <tr>
+                            <td>Incidents (work order or disposal)</td><td>@_pendingIncidents</td>
+                            <td class="actions"><a class="ams-link" href="incidents">Open</a></td>
+                        </tr>
+                    }
+                    @if (_pendingDisposals > 0)
+                    {
+                        <tr>
+                            <td>Disposal requests</td><td>@_pendingDisposals</td>
+                            <td class="actions"><a class="ams-link" href="disposals">Open</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+
+    @* Missing / stolen assets need no approval, so they are shown here as a notice
+       together with the data the approver asked for: last stage and last custodian. *@
+    @if (_losses.Count > 0)
+    {
+        <section class="ams-section" style="margin-top:20px;">
+            <h2>Missing / stolen assets (@_losses.Count)</h2>
+            <table class="ams-table">
+                <thead>
+                    <tr><th>Reported</th><th>Asset</th><th>Type</th><th>Last stage</th><th>Last custodian</th><th>Reported by</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var l in _losses)
+                    {
+                        <tr>
+                            <td>@l.Date?.ToString("yyyy-MM-dd")</td>
+                            <td><a class="ams-link" href="assets/@l.AssetId">@l.Asset?.AssetNumber</a> @l.Asset?.Name</td>
+                            <td>@(l.IncidentType?.ToString() ?? "—")</td>
+                            <td>@(l.LastStage is LifecycleStage s ? Stage(s) : "—")</td>
+                            <td>@(l.LastCustodian?.Name ?? "—")</td>
+                            <td><UserName Id="l.CreatedById" Names="_userNames" /></td>
+                            <td>@(l.Description ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <p class="ams-hint">
+                A disposal request was created for each of these; approve or reject it in
+                <a class="ams-link" href="disposals">Disposal Requests</a>.
+            </p>
+        </section>
+    }
+}
+
+@* ------------------------------------------------ Everyone: my rejected requests *@
+@if (_rejectedIssuance + _rejectedTransfers + _rejectedIncidents + _rejectedDisposals > 0)
+{
+    <section class="ams-section" style="margin-top:20px;">
+        <h2>My rejected requests</h2>
+        <table class="ams-table">
+            <thead><tr><th>Request type</th><th>Rejected</th><th class="actions">Reason</th></tr></thead>
+            <tbody>
+                @if (_rejectedIssuance > 0)
+                {
+                    <tr><td>Asset issuance</td><td>@_rejectedIssuance</td><td class="actions"><a class="ams-link" href="issuance">See reason</a></td></tr>
+                }
+                @if (_rejectedTransfers > 0)
+                {
+                    <tr><td>Transfers</td><td>@_rejectedTransfers</td><td class="actions"><a class="ams-link" href="transfers">See reason</a></td></tr>
+                }
+                @if (_rejectedIncidents > 0)
+                {
+                    <tr><td>Incidents</td><td>@_rejectedIncidents</td><td class="actions"><a class="ams-link" href="incidents">See reason</a></td></tr>
+                }
+                @if (_rejectedDisposals > 0)
+                {
+                    <tr><td>Disposal requests</td><td>@_rejectedDisposals</td><td class="actions"><a class="ams-link" href="disposals">See reason</a></td></tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    private int _assets, _categories, _employees, _items;
+    private bool _isApprover;
+
+    private int _pendingIssuance, _pendingTransfers, _pendingIncidents, _pendingDisposals;
+    private int _rejectedIssuance, _rejectedTransfers, _rejectedIncidents, _rejectedDisposals;
+    private List<Incident> _losses = new();
+    private Dictionary<int, string> _userNames = new();
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _assets = (await Assets.GetAllAsync()).Count;
+            _categories = (await Categories.GetAllAsync()).Count;
+            _employees = (await Employees.GetAllAsync()).Count;
+            _items = (await Items.GetAllAsync()).Count;
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+            _isApprover = await CurrentUser.IsInRoleAsync(AppRoles.Admin);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        try
+        {
+            if (_isApprover)
+            {
+                _pendingIssuance = (await Issuance.GetPendingAsync()).Count;
+                _pendingTransfers = (await Transfers.GetPendingAsync()).Count;
+                _pendingIncidents = (await Incidents.GetPendingAsync()).Count;
+                _pendingDisposals = (await Disposals.GetPendingAsync()).Count;
+                _losses = await Incidents.GetLossNoticesAsync();
+            }
+
+            _rejectedIssuance = (await Issuance.GetMyRejectedAsync()).Count;
+            _rejectedTransfers = (await Transfers.GetMyRejectedAsync()).Count;
+            _rejectedIncidents = (await Incidents.GetMyRejectedAsync()).Count;
+            _rejectedDisposals = (await Disposals.GetMyRejectedAsync()).Count;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private static string Stage(LifecycleStage stage) => stage switch
+    {
+        LifecycleStage.InStore => "In store",
+        LifecycleStage.Assigned => "Assigned",
+        LifecycleStage.InTransit => "In transit",
+        LifecycleStage.UnderMaintenance => "Under maintenance",
+        LifecycleStage.Disposed => "Disposed",
+        _ => stage.ToString()
+    };
+}

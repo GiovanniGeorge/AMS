@@ -1,0 +1,333 @@
+﻿@page "/receives"
+@inject IReceiveService Receives
+@inject IPurchaseOrderService PurchaseOrders
+@inject ICrudService<Store> Stores
+@inject ICrudService<Supplier> Suppliers
+@inject ICrudService<Item> Items
+@inject ICrudService<User> Users
+
+<PageTitle>Receive</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Receive</h1>
+        <div class="sub">@_total delivery(ies) — goods arriving into a store, applied at once</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ Receive</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No deliveries yet.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr><th>Date</th><th>Store</th><th>Supplier</th><th>Purchase order</th><th>Contents</th><th>Notes</th><th>Received by</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td>@r.Date?.ToString("yyyy-MM-dd")</td>
+                        <td>@(r.Store?.Name ?? "—")</td>
+                        <td>@(r.Supplier?.Name ?? "—")</td>
+                        <td>@(r.PurchaseOrder?.PurchaseOrderNumber ?? "—")</td>
+                        <td>
+                            @foreach (var l in r.Lines)
+                            {
+                                <div>
+                                    @if (l.Asset is not null)
+                                    {
+                                        <a class="ams-link" href="assets/@l.AssetId">@l.Asset.AssetNumber</a>
+                                        <span> @l.Asset.Name</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@l.Item?.Name &times; @l.Quantity.ToString("N2")</span>
+                                    }
+                                </div>
+                            }
+                        </td>
+                        <td>@(r.Notes ?? "—")</td>
+                        <td><UserName Id="r.CreatedById" Names="_userNames" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <Pager Page="_page" Total="_total" PageChanged="GoToAsync" />
+    }
+</div>
+
+<ModalForm Visible="_open" Title="Receive goods" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Into store *</label>
+            @if (_stores.Count == 0)
+            {
+                <div class="ams-readonly">No stores yet — <a class="ams-link" href="master/stores">add them in Stores</a>.</div>
+            }
+            else
+            {
+                <select @bind="_storeId">
+                    <option value="0">— select —</option>
+                    @foreach (var s in _stores)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="ams-field">
+            <label>Supplier</label>
+            <select @bind="_supplierId">
+                <option value="">— none —</option>
+                @foreach (var s in _suppliers)
+                {
+                    <option value="@s.Id">@s.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Purchase order</label>
+            <select @bind="_purchaseOrderId">
+                <option value="">— none —</option>
+                @foreach (var p in _orders)
+                {
+                    <option value="@p.Id">@p.PurchaseOrderNumber</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Date *</label>
+            <input type="date" @bind="_date" />
+        </div>
+    </div>
+
+    <div class="ams-field">
+        <label>Notes</label>
+        <textarea rows="2" @bind="_notes"></textarea>
+    </div>
+
+    @* ---------------- lines ---------------- *@
+    <h3 style="margin-top:14px;">Contents (@_lines.Count)</h3>
+
+    @if (_lines.Count > 0)
+    {
+        <table class="ams-table">
+            <thead><tr><th>What</th><th>Quantity</th><th class="actions"></th></tr></thead>
+            <tbody>
+                @foreach (var l in _lines)
+                {
+                    <tr>
+                        <td>@LineText(l)</td>
+                        <td>@(l.ItemId is null ? "1" : l.Quantity.ToString("N2"))</td>
+                        <td class="actions"><button class="ams-btn link danger" @onclick="() => _lines.Remove(l)">Remove</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <div class="ams-grid" style="margin-top:8px;">
+        <div class="ams-field">
+            <label>Add</label>
+            <select @bind="_lineKind">
+                <option value="item">Consumable item</option>
+                <option value="asset">Asset</option>
+            </select>
+        </div>
+
+        @if (_lineKind == "item")
+        {
+            <div class="ams-field">
+                <label>Item</label>
+                <select @bind="_lineItemId">
+                    <option value="0">— select —</option>
+                    @foreach (var i in _items)
+                    {
+                        <option value="@i.Id">@i.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="ams-field">
+                <label>Quantity</label>
+                <input type="number" step="0.01" @bind="_lineQuantity" />
+            </div>
+        }
+        else
+        {
+            <div class="ams-field">
+                <label>Asset</label>
+                <select @bind="_lineAssetId">
+                    <option value="0">— select —</option>
+                    @foreach (var a in _assets)
+                    {
+                        <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                    }
+                </select>
+            </div>
+        }
+
+        <div class="ams-field">
+            <label>&nbsp;</label>
+            <button class="ams-btn ghost" @onclick="AddLine">+ Add line</button>
+        </div>
+    </div>
+
+    <p class="ams-hint">
+        An item line raises the store's stock balance. An asset line puts the asset
+        <strong>In store</strong> at that store's location. There is no approval.
+    </p>
+</ModalForm>
+
+@code {
+    private List<Receive>? _rows;
+    private List<Store> _stores = new();
+    private List<Supplier> _suppliers = new();
+    private List<Item> _items = new();
+    private List<Asset> _assets = new();
+    private List<PurchaseOrder> _orders = new();
+    private Dictionary<int, string> _userNames = new();
+
+    private bool _open;
+    private int _storeId;
+    private int? _supplierId;
+    private int? _purchaseOrderId;
+    private DateTime _date = DateTime.Today;
+    private string? _notes;
+    private List<ReceiveLineInput> _lines = new();
+
+    private string _lineKind = "item";
+    private int _lineItemId;
+    private int _lineAssetId;
+    private decimal _lineQuantity = 1;
+
+    private string? _error;
+    private int _total;
+    private int _page = 1;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _stores = await Stores.GetAllAsync();
+            _suppliers = await Suppliers.GetAllAsync();
+            _items = await Items.GetAllAsync();
+            _orders = await PurchaseOrders.GetOpenAsync();
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var result = await Receives.GetAllAsync(_page);
+            _rows = result.Items;
+            _total = result.Total;
+            _assets = await Receives.GetReceivableAssetsAsync();
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+
+    private async Task GoToAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
+
+    private async Task FilterAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private void OpenNew()
+    {
+        _storeId = _stores.Count == 1 ? _stores[0].Id : 0;
+        _supplierId = null;
+        _purchaseOrderId = null;
+        _date = DateTime.Today;
+        _notes = null;
+        _lines = new();
+        _lineKind = "item";
+        _lineItemId = 0;
+        _lineAssetId = 0;
+        _lineQuantity = 1;
+        _error = null;
+        _open = true;
+    }
+
+    private void Close() => _open = false;
+
+    private void AddLine()
+    {
+        _error = null;
+
+        if (_lineKind == "item")
+        {
+            if (_lineItemId == 0) { _error = "Choose an item."; return; }
+            if (_lineQuantity <= 0) { _error = "The quantity must be greater than zero."; return; }
+            _lines.Add(new ReceiveLineInput(_lineItemId, null, _lineQuantity));
+            _lineItemId = 0;
+            _lineQuantity = 1;
+        }
+        else
+        {
+            if (_lineAssetId == 0) { _error = "Choose an asset."; return; }
+            if (_lines.Any(l => l.AssetId == _lineAssetId)) { _error = "That asset is already on this delivery."; return; }
+            _lines.Add(new ReceiveLineInput(null, _lineAssetId, 1));
+            _lineAssetId = 0;
+        }
+    }
+
+    private string LineText(ReceiveLineInput line)
+    {
+        if (line.AssetId is int assetId)
+        {
+            var asset = _assets.FirstOrDefault(a => a.Id == assetId);
+            return asset is null ? "Asset" : $"{asset.AssetNumber} — {asset.Name}";
+        }
+
+        return _items.FirstOrDefault(i => i.Id == line.ItemId)?.Name ?? "Item";
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_storeId == 0) { _error = "Store is required."; return; }
+        if (_date == default) { _error = "The date is required."; return; }
+        if (_lines.Count == 0) { _error = "Add at least one line."; return; }
+
+        try
+        {
+            await Receives.CreateAsync(new ReceiveInput(_date, _storeId, _supplierId, _purchaseOrderId, _notes, _lines));
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+}

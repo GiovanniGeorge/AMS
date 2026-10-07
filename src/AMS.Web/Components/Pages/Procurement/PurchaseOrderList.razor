@@ -1,0 +1,330 @@
+﻿@page "/purchase-orders"
+@inject IPurchaseOrderService Orders
+@inject ICrudService<Supplier> Suppliers
+@inject ICrudService<Item> Items
+@inject ICrudService<User> Users
+
+<PageTitle>Purchase Orders</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Purchase Orders</h1>
+        <div class="sub">@_total order(s) — the total is always the sum of the lines</div>
+    </div>
+    <button class="ams-btn" @onclick="OpenNew">+ Purchase Order</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar ams-filters">
+        <select @bind="_status" @bind:after="FilterAsync">
+            <option value="">All statuses</option>
+            <option value="@PurchaseOrderStatus.Open">Open</option>
+            <option value="@PurchaseOrderStatus.Closed">Closed</option>
+        </select>
+    </div>
+
+    @if (_rows is null)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="ams-empty">No purchase orders.</div>
+    }
+    else
+    {
+        <table class="ams-table">
+            <thead>
+                <tr>
+                    <th>Number</th><th>Supplier</th><th>Date</th><th>Expected</th><th>Lines</th>
+                    <th>Total</th><th>Status</th><th>Created by</th><th class="actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in _rows)
+                {
+                    <tr>
+                        <td>@p.PurchaseOrderNumber</td>
+                        <td>@(p.Supplier?.Name ?? "—")</td>
+                        <td>@p.PurchaseDate?.ToString("yyyy-MM-dd")</td>
+                        <td>@p.ExpectedDeliveryDate?.ToString("yyyy-MM-dd")</td>
+                        <td>
+                            @foreach (var l in p.Lines)
+                            {
+                                <div>@(l.Item?.Name ?? l.Description) &times; @l.Quantity.ToString("N2") @(l.UnitPrice is null ? "" : "@ " + l.UnitPrice.Value.ToString("N2"))</div>
+                            }
+                        </td>
+                        <td>@(p.TotalCost?.ToString("N2") ?? "—") @p.Currency</td>
+                        <td>@p.Status</td>
+                        <td><UserName Id="p.CreatedById" Names="_userNames" /></td>
+                        <td class="actions">
+                            @if (p.Status != PurchaseOrderStatus.Closed)
+                            {
+                                <button class="ams-btn link" @onclick="() => OpenEdit(p)">Edit</button>
+                                <button class="ams-btn link" @onclick="() => CloseOrderAsync(p.Id)">Close</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <Pager Page="_page" Total="_total" PageChanged="GoToAsync" />
+    }
+</div>
+
+<ModalForm Visible="_open" Title="@(_editId is null ? "New purchase order" : "Edit purchase order")" OnSave="SaveAsync" OnCancel="Close">
+    <div class="ams-grid">
+        <div class="ams-field">
+            <label>Number *</label>
+            <input @bind="_number" />
+        </div>
+
+        <div class="ams-field">
+            <label>Supplier</label>
+            <select @bind="_supplierId">
+                <option value="">— none —</option>
+                @foreach (var s in _suppliers)
+                {
+                    <option value="@s.Id">@s.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Order date</label>
+            <input type="date" @bind="_date" />
+        </div>
+
+        <div class="ams-field">
+            <label>Expected delivery</label>
+            <input type="date" @bind="_expected" />
+        </div>
+
+        <div class="ams-field">
+            <label>Currency</label>
+            <input @bind="_currency" />
+        </div>
+
+        <div class="ams-field">
+            <label>Total</label>
+            <div class="ams-readonly">@Total.ToString("N2")</div>
+        </div>
+    </div>
+
+    <h3 style="margin-top:14px;">Lines (@_lines.Count)</h3>
+
+    @if (_lines.Count > 0)
+    {
+        <table class="ams-table">
+            <thead><tr><th>Item / description</th><th>Quantity</th><th>Unit price</th><th>Line total</th><th class="actions"></th></tr></thead>
+            <tbody>
+                @foreach (var l in _lines)
+                {
+                    <tr>
+                        <td>@(_items.FirstOrDefault(i => i.Id == l.ItemId)?.Name ?? l.Description)</td>
+                        <td>@l.Quantity.ToString("N2")</td>
+                        <td>@(l.UnitPrice?.ToString("N2") ?? "—")</td>
+                        <td>@((l.Quantity * (l.UnitPrice ?? 0m)).ToString("N2"))</td>
+                        <td class="actions"><button class="ams-btn link danger" @onclick="() => _lines.Remove(l)">Remove</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <div class="ams-grid" style="margin-top:8px;">
+        <div class="ams-field">
+            <label>Item</label>
+            <select @bind="_lineItemId">
+                <option value="">— free text —</option>
+                @foreach (var i in _items)
+                {
+                    <option value="@i.Id">@i.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Description</label>
+            <input @bind="_lineDescription" placeholder="Used when no item is chosen" />
+        </div>
+
+        <div class="ams-field">
+            <label>Quantity</label>
+            <input type="number" step="0.01" @bind="_lineQuantity" />
+        </div>
+
+        <div class="ams-field">
+            <label>Unit price</label>
+            <input type="number" step="0.01" @bind="_lineUnitPrice" />
+        </div>
+
+        <div class="ams-field">
+            <label>&nbsp;</label>
+            <button class="ams-btn ghost" @onclick="AddLine">+ Add line</button>
+        </div>
+    </div>
+</ModalForm>
+
+@code {
+    private List<PurchaseOrder>? _rows;
+    private List<Supplier> _suppliers = new();
+    private List<Item> _items = new();
+    private Dictionary<int, string> _userNames = new();
+    private string _status = string.Empty;
+    private int _total;
+    private int _page = 1;
+
+
+    private bool _open;
+    private int? _editId;
+    private string? _number;
+    private int? _supplierId;
+    private DateTime? _date = DateTime.Today;
+    private DateTime? _expected;
+    private string? _currency;
+    private List<PurchaseOrderLineInput> _lines = new();
+
+    private int? _lineItemId;
+    private string? _lineDescription;
+    private decimal _lineQuantity = 1;
+    private decimal? _lineUnitPrice;
+
+    private string? _error;
+
+    private decimal Total => _lines.Sum(l => l.Quantity * (l.UnitPrice ?? 0m));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _suppliers = await Suppliers.GetAllAsync();
+            _items = await Items.GetAllAsync();
+            _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var result = await Orders.GetAllAsync(string.IsNullOrEmpty(_status) ? null : _status, _page);
+            _rows = result.Items;
+            _total = result.Total;
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+
+    private async Task GoToAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
+    }
+
+    private async Task FilterAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private void OpenNew()
+    {
+        _editId = null;
+        _number = null;
+        _supplierId = null;
+        _date = DateTime.Today;
+        _expected = null;
+        _currency = null;
+        _lines = new();
+        ClearLine();
+        _error = null;
+        _open = true;
+    }
+
+    private void OpenEdit(PurchaseOrder order)
+    {
+        _editId = order.Id;
+        _number = order.PurchaseOrderNumber;
+        _supplierId = order.SupplierId;
+        _date = order.PurchaseDate;
+        _expected = order.ExpectedDeliveryDate;
+        _currency = order.Currency;
+        _lines = order.Lines
+            .Select(l => new PurchaseOrderLineInput(l.ItemId, l.Description, l.Quantity, l.UnitPrice))
+            .ToList();
+        ClearLine();
+        _error = null;
+        _open = true;
+    }
+
+    private void Close() => _open = false;
+
+    private void ClearLine()
+    {
+        _lineItemId = null;
+        _lineDescription = null;
+        _lineQuantity = 1;
+        _lineUnitPrice = null;
+    }
+
+    private void AddLine()
+    {
+        _error = null;
+
+        if (_lineItemId is null && string.IsNullOrWhiteSpace(_lineDescription))
+        {
+            _error = "Choose an item or type a description.";
+            return;
+        }
+
+        if (_lineQuantity <= 0)
+        {
+            _error = "The quantity must be greater than zero.";
+            return;
+        }
+
+        _lines.Add(new PurchaseOrderLineInput(_lineItemId, _lineDescription, _lineQuantity, _lineUnitPrice));
+        ClearLine();
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_number)) { _error = "The number is required."; return; }
+        if (_lines.Count == 0) { _error = "Add at least one line."; return; }
+
+        try
+        {
+            var input = new PurchaseOrderInput(_number!, _supplierId, _date, _expected, _currency, _lines);
+
+            if (_editId is int id) await Orders.UpdateAsync(id, input);
+            else await Orders.CreateAsync(input);
+
+            _open = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task CloseOrderAsync(int id)
+    {
+        _error = null;
+        try
+        {
+            await Orders.CloseAsync(id);
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+}

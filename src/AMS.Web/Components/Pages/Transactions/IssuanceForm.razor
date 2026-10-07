@@ -1,0 +1,195 @@
+﻿@page "/issuance/new"
+@inject IAssetIssuanceService Issuance
+@inject ICrudService<Store> Stores
+@inject ICrudService<Employee> Employees
+@inject ICrudService<Department> Departments
+@inject ICrudService<Location> Locations
+@inject NavigationManager Nav
+
+<PageTitle>Issue Asset</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Issue Asset</h1>
+        <div class="sub">The asset leaves the store and goes to an employee once the approver approves</div>
+    </div>
+    <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo("issuance")'>Cancel</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+@if (_loading)
+{
+    <div class="ams-empty">Loading&hellip;</div>
+}
+else
+{
+    <section class="ams-section">
+        <h2>Request</h2>
+        <div class="ams-grid">
+            <div class="ams-field">
+                <label>Asset *</label>
+                @if (_assets.Count == 0)
+                {
+                    <div class="ams-readonly">No asset can be issued — only active assets that are <strong>In store</strong> and have no pending request.</div>
+                }
+                else
+                {
+                    <select @bind="_assetId">
+                        <option value="0">— select —</option>
+                        @foreach (var a in _assets)
+                        {
+                            <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                        }
+                    </select>
+                }
+            </div>
+
+            <div class="ams-field">
+                <label>From store *</label>
+                @if (_stores.Count == 0)
+                {
+                    <div class="ams-readonly">No stores yet — <a class="ams-link" href="master/stores">add them in Stores</a>.</div>
+                }
+                else
+                {
+                    <select @bind="_storeId">
+                        <option value="0">— select —</option>
+                        @foreach (var s in _stores)
+                        {
+                            <option value="@s.Id">@s.Name</option>
+                        }
+                    </select>
+                }
+            </div>
+
+            <div class="ams-field">
+                <label>Employee (custodian) *</label>
+                @if (_employees.Count == 0)
+                {
+                    <div class="ams-readonly">No employees yet — <a class="ams-link" href="master/employees">add them in Employees</a>.</div>
+                }
+                else
+                {
+                    <select @bind="_employeeId" @bind:after="OnEmployeeChanged">
+                        <option value="0">— select —</option>
+                        @foreach (var e in _employees)
+                        {
+                            <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
+                        }
+                    </select>
+                }
+            </div>
+
+            <div class="ams-field">
+                <label>Department</label>
+                <select @bind="_departmentId">
+                    <option value="">— none —</option>
+                    @foreach (var d in _departments)
+                    {
+                        <option value="@d.Id">@d.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="ams-field">
+                <label>Location</label>
+                <select @bind="_locationId">
+                    <option value="">— none —</option>
+                    @foreach (var l in _locations)
+                    {
+                        <option value="@l.Id">@l.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="ams-field">
+                <label>Issue date *</label>
+                <input type="date" @bind="_date" />
+            </div>
+        </div>
+        <div class="ams-field">
+            <label>Notes</label>
+            <textarea rows="2" @bind="_notes"></textarea>
+        </div>
+        <p class="ams-hint">
+            Department is filled from the employee's department; you can change it.
+            The asset's location becomes the location chosen here (empty = unknown) when the request is approved.
+        </p>
+    </section>
+
+    <div class="ams-form-actions">
+        <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo("issuance")'>Cancel</button>
+        <button class="ams-btn" @onclick="SubmitAsync" disabled="@_saving">Submit for approval</button>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery] public int? AssetId { get; set; }
+
+    private List<Asset> _assets = new();
+    private List<Store> _stores = new();
+    private List<Employee> _employees = new();
+    private List<Department> _departments = new();
+    private List<Location> _locations = new();
+
+    private int _assetId;
+    private int _storeId;
+    private int _employeeId;
+    private int? _departmentId;
+    private int? _locationId;
+    private DateTime _date = DateTime.Today;
+    private string? _notes;
+
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _assets = await Issuance.GetIssuableAssetsAsync();
+            _stores = await Stores.GetAllAsync();
+            _employees = await Employees.GetAllAsync();
+            _departments = await Departments.GetAllAsync();
+            _locations = await Locations.GetAllAsync();
+
+            // Opened from an asset's page with ?assetId=...
+            if (AssetId is int id)
+            {
+                if (_assets.Any(a => a.Id == id)) _assetId = id;
+                else _error = "That asset cannot be issued: it is not In store, or it already has a pending request.";
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private void OnEmployeeChanged()
+    {
+        _departmentId = _employees.FirstOrDefault(e => e.Id == _employeeId)?.DepartmentId;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _error = null;
+        if (_assetId == 0) { _error = "Asset is required."; return; }
+        if (_storeId == 0) { _error = "Store is required."; return; }
+        if (_employeeId == 0) { _error = "Employee is required."; return; }
+        if (_date == default) { _error = "The date is required."; return; }
+
+        _saving = true;
+        try
+        {
+            await Issuance.CreateAsync(new IssuanceRequest(
+                _assetId, _storeId, _employeeId, _departmentId, _locationId, _date, _notes));
+            Nav.NavigateTo("issuance");
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+        finally { _saving = false; }
+    }
+}
