@@ -3,6 +3,8 @@
 @inject ICrudService<Asset> AssetCrud
 @inject ICrudService<Category> Categories
 @inject ICrudService<Location> Locations
+@inject ICrudService<AssetStatus> Statuses
+@inject ICurrentUserService CurrentUser
 @inject ICrudService<User> Users
 @inject NavigationManager Nav
 
@@ -31,6 +33,11 @@
     <div class="ams-alert">@_error</div>
 }
 
+@if (_notice is not null)
+{
+    <div class="ams-card" style="margin-bottom:12px;"><div class="ams-hint">@_notice</div></div>
+}
+
 <div class="ams-card">
     <div class="ams-toolbar ams-filters">
         <input class="ams-search" placeholder="Search number, name, serial, barcode…"
@@ -57,6 +64,14 @@
             @foreach (var l in _locations)
             {
                 <option value="@l.Id">@l.Name</option>
+            }
+        </select>
+
+        <select @bind="_statusId" @bind:after="SearchAsync">
+            <option value="">All conditions</option>
+            @foreach (var st in _statuses)
+            {
+                <option value="@st.Id">@st.Name</option>
             }
         </select>
 
@@ -95,6 +110,10 @@
                         <td class="actions">
                             <button class="ams-btn link" @onclick='() => Nav.NavigateTo($"assets/{r.Id}")'>View</button>
                             <button class="ams-btn link" @onclick='() => Nav.NavigateTo($"assets/{r.Id}/edit")'>Edit</button>
+                            @if (r.IsActive && r.LifecycleStage == LifecycleStage.InStore)
+                            {
+                                <button class="ams-btn link" @onclick="() => OpenAssign(r)">Assign</button>
+                            }
                             <button class="ams-btn link @(r.IsActive ? "danger" : "")" @onclick="() => ToggleAsync(r)">
                                 @(r.IsActive ? "Deactivate" : "Activate")
                             </button>
@@ -115,18 +134,38 @@
     }
 </div>
 
+<AssignAssetModal Visible="_assign is not null"
+                  AssetId="_assign?.Id"
+                  AssetLabel="@AssignLabel"
+                  OnAssigned="OnAssignedAsync"
+                  OnCancel="() => _assign = null" />
+
 <p class="ams-hint">
     Deactivate is only for an asset registered by mistake. An asset that reaches the end of its life leaves through a Disposal request.
 </p>
 
 @code {
+    // The dashboard tiles link here with ?stage=... and ?status=..., so one screen
+    // serves both the register and every "show me these assets" shortcut.
+    [Parameter, SupplyParameterFromQuery(Name = "stage")] public string? StageQuery { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "status")] public int? StatusQuery { get; set; }
+
     private List<Asset>? _rows;
     private List<Category> _categories = new();
     private List<Location> _locations = new();
+    private List<AssetStatus> _statuses = new();
     private Dictionary<int, string> _userNames = new();
+
+    private Asset? _assign;
+
+    private string AssignLabel => _assign is null
+        ? string.Empty
+        : _assign.AssetNumber + " — " + _assign.Name;
+    private string? _notice;
 
     private string? _search;
     private string _stage = string.Empty;
+    private int? _statusId;
     private int? _categoryId;
     private int? _locationId;
     private bool _showInactive;
@@ -146,9 +185,13 @@
         {
             _categories = await Categories.GetAllAsync();
             _locations = await Locations.GetAllAsync();
+            _statuses = await Statuses.GetAllAsync();
             _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
         }
         catch (Exception ex) { _error = ex.Message; }
+
+        if (!string.IsNullOrWhiteSpace(StageQuery)) _stage = StageQuery;
+        if (StatusQuery is { } fromUrl) _statusId = fromUrl;
 
         await LoadAsync();
     }
@@ -168,7 +211,7 @@
     private AssetFilter Filter(int page, int pageSize)
     {
         LifecycleStage? stage = Enum.TryParse<LifecycleStage>(_stage, out var s) ? s : null;
-        return new AssetFilter(_search, stage, _categoryId, _locationId, _showInactive, page, pageSize);
+        return new AssetFilter(_search, stage, _categoryId, _locationId, _showInactive, page, pageSize, _statusId);
     }
 
     /// <summary>A changed filter always starts again at page 1.</summary>
@@ -244,6 +287,22 @@
         return value.Contains(',') || value.Contains('"') || value.Contains('\n')
             ? "\"" + value.Replace("\"", "\"\"") + "\""
             : value;
+    }
+
+    private void OpenAssign(Asset r)
+    {
+        _assign = r;
+        _notice = null;
+    }
+
+    private async Task OnAssignedAsync(bool moved)
+    {
+        _assign = null;
+        _notice = moved
+            ? "The asset was assigned and is now in the employee's custody."
+            : "The request was raised and is waiting for the administrator's approval.";
+
+        await LoadAsync();
     }
 
     private async Task ToggleAsync(Asset r)

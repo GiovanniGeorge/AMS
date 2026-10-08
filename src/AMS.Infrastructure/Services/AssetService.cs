@@ -50,6 +50,12 @@ public class AssetService : IAssetService
             query = query.Where(a => a.LocationId == locationId);
         }
 
+        // Condition (Available, Damaged, ...) - the AssetStatus lookup, not the lifecycle stage.
+        if (filter.StatusId is { } statusId)
+        {
+            query = query.Where(a => a.StatusId == statusId);
+        }
+
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var text = filter.Search.Trim();

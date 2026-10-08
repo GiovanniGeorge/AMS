@@ -149,6 +149,68 @@ public class AssetIssuanceService : IAssetIssuanceService
         }
     }
 
+    public async Task<int> CreateApprovedAsync(IssuanceRequest request)
+    {
+        // Only the administrator may move custody. A direct assignment skips the waiting
+        // step, not the permission check.
+        await EnsureApproverAsync();
+
+        try
+        {
+            // Tracked: this asset is updated below in the same SaveChanges.
+            var asset = await _db.Assets.FirstOrDefaultAsync(a => a.Id == request.AssetId)
+                        ?? throw new InvalidOperationException("Asset not found.");
+
+            if (!asset.IsActive || asset.LifecycleStage != LifecycleStage.InStore)
+            {
+                throw new InvalidOperationException("Only an active asset that is In store can be issued.");
+            }
+
+            await PendingRequests.EnsureFreeAsync(_db, request.AssetId);
+
+            var employee = await _db.Employees.AsNoTracking()
+                               .FirstOrDefaultAsync(e => e.Id == request.EmployeeId && e.IsActive)
+                           ?? throw new InvalidOperationException("Employee not found.");
+
+            var issue = new Issue
+            {
+                Date = request.Date,
+                AssetId = request.AssetId,
+                EmployeeId = request.EmployeeId,
+                StoreId = request.StoreId,
+                Status = RequestStatus.Approved
+            };
+
+            var assignment = new AssetAssignment
+            {
+                AssetId = request.AssetId,
+                CustodianId = request.EmployeeId,
+                DepartmentId = request.DepartmentId ?? employee.DepartmentId,
+                LocationId = request.LocationId,
+                AssignmentDate = request.Date,
+                Status = RequestStatus.Approved,
+                Notes = request.Notes,
+                Issue = issue,
+                Approval = await NewApprovalAsync(RequestStatus.Approved,
+                    "Assigned directly by the administrator.")
+            };
+
+            // Same effect as an approval, so the asset takes the custody immediately.
+            asset.CustodianId = assignment.CustodianId;
+            asset.DepartmentId = assignment.DepartmentId;
+            asset.LocationId = assignment.LocationId;
+            asset.LifecycleStage = LifecycleStage.Assigned;
+
+            _db.AssetAssignments.Add(assignment);
+            await _db.SaveChangesAsync();
+            return assignment.Id;
+        }
+        finally
+        {
+            _db.ChangeTracker.Clear();
+        }
+    }
+
     // ------------------------------------------------------------------
     // Approving / rejecting
     // ------------------------------------------------------------------

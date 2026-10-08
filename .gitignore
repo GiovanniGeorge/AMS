@@ -64,3 +64,6 @@ desktop.ini
 AMS-DB-DECISIONS.md
 AMS-REVIEW.md
 docs/AMS-Technical-Notes.pdf
+
+# local notes that must never be shared
+*.local.txt

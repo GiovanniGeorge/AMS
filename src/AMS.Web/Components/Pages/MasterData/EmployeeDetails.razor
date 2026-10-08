@@ -1,0 +1,262 @@
+﻿@page "/master/employees/{Id:int}"
+@inject IDirectoryService Directory
+@inject NavigationManager Nav
+
+<PageTitle>@(_employee?.Name ?? "Employee")</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+@if (_loading)
+{
+    <div class="ams-empty">Loading&hellip;</div>
+}
+else if (_employee is null)
+{
+    <div class="ams-empty">This employee does not exist.</div>
+    <p><a class="ams-link" href="master/employees">&larr; Back to Employees</a></p>
+}
+else
+{
+    <div class="ams-page-head">
+        <div>
+            <h1>@_employee.Name</h1>
+            <div class="sub">
+                @_employee.EmployeeNumber
+                @(_employee.Department is null ? "" : " · " + _employee.Department.Name)
+                · @_assets.Count asset(s) in custody
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+            @if (_csv is null)
+            {
+                <button class="ams-btn ghost" @onclick="PrepareCsv" disabled="@(_assets.Count == 0)">Export CSV</button>
+            }
+            else
+            {
+                <a class="ams-btn ghost" href="@_csv" download="@CsvName">Download CSV</a>
+            }
+            <button class="ams-btn ghost" onclick="window.print()">Print Custody Statement</button>
+            <button class="ams-btn" @onclick="() => _assigning = true" disabled="@(!_employee.IsActive)">+ Assign Asset</button>
+        </div>
+    </div>
+
+    @if (_notice is not null)
+    {
+        <div class="ams-card" style="margin-bottom:12px;"><div class="ams-hint">@_notice</div></div>
+    }
+
+    @* ------------------------------------- printed custody statement header *@
+    <div class="print-only ams-print-head">
+        <h2>Asset Custody Statement</h2>
+        <div class="meta">
+            <div><strong>Employee:</strong> @_employee.Name (@_employee.EmployeeNumber)</div>
+            <div><strong>Department:</strong> @(_employee.Department?.Name ?? "—")</div>
+            <div><strong>Assets in custody:</strong> @_assets.Count</div>
+            <div><strong>Printed:</strong> @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
+        </div>
+        <hr class="ams-print-rule" />
+    </div>
+
+    @* ---------------------------------------------- the employee's own record *@
+    <div class="ams-card no-print">
+        <h2 class="ams-section-title">Employee</h2>
+        <table class="ams-table">
+            <tbody>
+                <tr><th style="width:220px;">Employee number</th><td>@_employee.EmployeeNumber</td></tr>
+                <tr><th>Name</th><td>@_employee.Name</td></tr>
+                <tr><th>Department</th><td>@(_employee.Department?.Name ?? "—")</td></tr>
+                <tr><th>Status</th><td><StatusBadge Active="_employee.IsActive" /></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    @* ---------------------------------------------- what he is holding now *@
+    <div class="ams-card" style="margin-top:16px;">
+        <h2 class="ams-section-title">Assets in custody (@_assets.Count)</h2>
+
+        @if (_assets.Count == 0)
+        {
+            <div class="ams-empty">This employee holds no assets.</div>
+        }
+        else
+        {
+            <table class="ams-table">
+                <thead>
+                    <tr>
+                        <th>Asset No.</th><th>Name</th><th>Category</th><th>Stage</th>
+                        <th>Condition</th><th>Location</th><th>Serial</th>
+                        <th>Purchase date</th><th>Purchase cost</th><th class="actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in _assets)
+                    {
+                        <tr>
+                            <td><a class="ams-link" href="assets/@a.Id">@a.AssetNumber</a></td>
+                            <td>@a.Name</td>
+                            <td>@(a.Category?.Name ?? "—")</td>
+                            <td><StageBadge Stage="a.LifecycleStage" /></td>
+                            <td>@(a.Status?.Name ?? "—")</td>
+                            <td>@(a.Location?.Name ?? "—")</td>
+                            <td>@(a.SerialNumber ?? "—")</td>
+                            <td>@(a.PurchaseDate?.ToString("yyyy-MM-dd") ?? "—")</td>
+                            <td>@(a.PurchaseCost?.ToString("N2") ?? "—")</td>
+                            <td class="actions">
+                                <button class="ams-btn link" @onclick='() => Nav.NavigateTo($"assets/{a.Id}")'>View</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    @* ------------------------------------- signed by the person receiving custody *@
+    <div class="print-only">
+        <p style="font-size:9.5pt;margin-top:6mm;">
+            I confirm that the assets listed above are in my custody, and that I am responsible
+            for keeping them in good condition and returning them when asked.
+        </p>
+        <div class="ams-signatures">
+            <div>
+                <div class="ams-sign-line"></div>
+                <div class="ams-sign-label">Custodian — @_employee.Name</div>
+            </div>
+            <div>
+                <div class="ams-sign-line"></div>
+                <div class="ams-sign-label">Store keeper</div>
+            </div>
+            <div>
+                <div class="ams-sign-line"></div>
+                <div class="ams-sign-label">Administrator</div>
+            </div>
+        </div>
+    </div>
+
+    @* ---------------------------------------------- everything he ever held *@
+    <div class="ams-card no-print" style="margin-top:16px;">
+        <h2 class="ams-section-title">Custody history (@_history.Count)</h2>
+
+        @if (_history.Count == 0)
+        {
+            <div class="ams-empty">No approved custody yet.</div>
+        }
+        else
+        {
+            <table class="ams-table">
+                <thead>
+                    <tr><th>Asset No.</th><th>Name</th><th>Category</th><th>From</th><th>To</th><th>Location</th><th>Now</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var h in _history)
+                    {
+                        <tr>
+                            <td><a class="ams-link" href="assets/@h.AssetId">@h.AssetNumber</a></td>
+                            <td>@h.AssetName</td>
+                            <td>@(h.Category ?? "—")</td>
+                            <td>@(h.From?.ToString("yyyy-MM-dd") ?? "—")</td>
+                            <td>@(h.To?.ToString("yyyy-MM-dd") ?? "—")</td>
+                            <td>@(h.Location ?? "—")</td>
+                            <td>@(h.IsCurrent ? "Still held" : "Returned / moved")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <p class="ams-hint" style="margin-top:12px;">
+        <a class="ams-link" href="master/employees">&larr; Back to Employees</a>
+    </p>
+
+    <AssignAssetModal Visible="_assigning"
+                      EmployeeId="_employee.Id"
+                      EmployeeLabel="@EmployeeLabel"
+                      OnAssigned="OnAssignedAsync"
+                      OnCancel="() => _assigning = false" />
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Employee? _employee;
+    private List<Asset> _assets = new();
+    private List<CustodyLine> _history = new();
+
+    private string CsvName => "custody-" + (_employee?.EmployeeNumber ?? "employee") + ".csv";
+
+    private string EmployeeLabel => _employee is null
+        ? string.Empty
+        : _employee.EmployeeNumber + " — " + _employee.Name;
+
+    private bool _loading = true;
+    private bool _assigning;
+    private string? _csv;
+    private string? _error;
+    private string? _notice;
+
+    // Runs again when the route id changes, so one page serves every employee.
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _csv = null;
+
+        try
+        {
+            _employee = await Directory.GetEmployeeAsync(Id);
+
+            if (_employee is not null)
+            {
+                _assets = await Directory.GetEmployeeAssetsAsync(Id);
+                _history = await Directory.GetCustodyHistoryAsync(Id);
+            }
+
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task OnAssignedAsync(bool moved)
+    {
+        _assigning = false;
+        _notice = moved
+            ? "The asset was assigned and is now in this employee's custody."
+            : "The request was raised and is waiting for the administrator's approval.";
+
+        await LoadAsync();
+    }
+
+    /// <summary>The custody list as a data: link, same approach as the register - no endpoint, no JavaScript.</summary>
+    private void PrepareCsv()
+    {
+        var text = new System.Text.StringBuilder();
+        text.AppendLine("Asset No.,Name,Category,Stage,Condition,Location,Serial,Purchase date,Purchase cost");
+
+        foreach (var a in _assets)
+        {
+            text.AppendLine(string.Join(',', new[]
+            {
+                Csv(a.AssetNumber), Csv(a.Name), Csv(a.Category?.Name), Csv(a.LifecycleStage.ToString()),
+                Csv(a.Status?.Name), Csv(a.Location?.Name), Csv(a.SerialNumber),
+                Csv(a.PurchaseDate?.ToString("yyyy-MM-dd")), Csv(a.PurchaseCost?.ToString("0.00"))
+            }));
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes("﻿" + text.ToString());
+        _csv = "data:text/csv;base64," + Convert.ToBase64String(bytes);
+    }
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n')
+            ? "\"" + value.Replace("\"", "\"\"") + "\""
+            : value;
+    }
+}

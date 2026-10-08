@@ -69,6 +69,13 @@ public class ApplicationDbContext : DbContext
                     .Take(40)
                     .ToList();
 
+                // Saving a row without changing any logged column (opening an edit form
+                // and pressing Save) is not an event: it leaves no line in the log.
+                if (!isInsert && changed.Count == 0)
+                {
+                    continue;
+                }
+
                 pending.Add(new PendingAudit(
                     entry,
                     isInsert ? AuditAction.Insert
@@ -268,6 +275,12 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<Employee>()
             .HasIndex(x => x.EmployeeNumber).IsUnique();
+
+        // One person, one login. Filtered twice over: a service account has no employee,
+        // and a deactivated login must not block a replacement for the same person.
+        modelBuilder.Entity<User>()
+            .HasIndex(x => x.EmployeeId).IsUnique()
+            .HasFilter("[EmployeeId] IS NOT NULL AND [IsActive] = 1");
 
         modelBuilder.Entity<PurchaseOrder>()
             .HasIndex(x => x.PurchaseOrderNumber).IsUnique();

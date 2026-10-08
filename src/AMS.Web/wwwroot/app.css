@@ -386,6 +386,15 @@ html, body {
     transition: box-shadow .16s ease, transform .16s ease;
 }
 .ams-tile:hover { box-shadow: var(--ams-shadow-md); transform: translateY(-1px); }
+/* A tile that links somewhere must not look like body text with an underline. */
+a.ams-tile { display: block; text-decoration: none; color: inherit; cursor: pointer; }
+a.ams-tile:hover .value { color: var(--ams-primary); }
+
+/* Heading inside a card, for pages built from several stacked cards. */
+.ams-section-title {
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .08em;
+    font-weight: 700; color: var(--ams-faint); margin: 0 0 12px;
+}
 .ams-tile::before {
     content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
     background: linear-gradient(180deg, #7c9bff, var(--ams-primary));
@@ -535,3 +544,69 @@ html, body {
     font-size: .87rem;
 }
 #blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .9rem; top: .55rem; }
+
+
+/* ============================ printing ==================================
+   Any screen can be printed: the chrome (sidebar, top bar, filters, buttons,
+   action columns) is dropped and what stays is the document itself.
+   Blocks marked .print-only appear only on paper - the custody statement
+   header and the signature lines live there.
+   ====================================================================== */
+
+.print-only { display: none; }
+
+/* Signature lines at the bottom of a printed custody statement. */
+.ams-signatures { display: flex; gap: 24px; margin-top: 18mm; }
+.ams-signatures > div { flex: 1; }
+.ams-sign-line { border-bottom: 1px solid #000; height: 40px; margin-bottom: 6px; }
+.ams-sign-label { font-size: 9pt; color: #000; }
+
+.ams-print-head { margin-bottom: 8mm; }
+.ams-print-head h2 { font-size: 15pt; margin: 0 0 2mm; }
+.ams-print-head .meta { font-size: 9.5pt; }
+.ams-print-head .meta div { margin-bottom: 1.5mm; }
+.ams-print-rule { border: none; border-top: 1.5px solid #000; margin: 3mm 0 5mm; }
+
+@media print {
+    @page { margin: 14mm; }
+
+    html, body { background: #fff; color: #000; }
+
+    /* Everything that is screen furniture, not content. */
+    .ams-sidebar, .ams-topbar, .ams-backdrop, .ams-burger, #blazor-error-ui,
+    .ams-filters, .ams-toolbar, .ams-btn, .ams-pager, .ams-alert,
+    .ams-table .actions, .ams-hint, .no-print { display: none !important; }
+
+    .ams-shell, .ams-main { display: block; }
+    .ams-content { padding: 0; max-width: none; margin: 0; }
+
+    .ams-card, .ams-section {
+        border: none; box-shadow: none; padding: 0; margin: 0 0 8mm;
+        overflow: visible; background: #fff;
+    }
+
+    .ams-page-head { border: none; margin: 0 0 5mm; display: block; }
+    .ams-page-head h1 { font-size: 15pt; }
+    .ams-page-head .sub { color: #000; font-size: 9.5pt; }
+
+    .ams-section-title { color: #000; font-size: 9pt; margin-bottom: 3mm; }
+
+    .ams-table { font-size: 8.5pt; }
+    /* Repeat the header row at the top of every printed page. */
+    .ams-table thead { display: table-header-group; }
+    .ams-table tbody tr { break-inside: avoid; page-break-inside: avoid; }
+    .ams-table thead th, .ams-table tbody td, .ams-table tfoot th {
+        border: 1px solid #888; padding: 3px 5px; background: #fff !important; color: #000;
+    }
+    .ams-table tbody tr:hover { background: #fff; }
+    .ams-table tbody tr.is-inactive td { color: #000; }
+
+    a, a.ams-link { color: #000; text-decoration: none; }
+
+    .ams-tiles { display: flex; gap: 6mm; }
+    .ams-tile { border: 1px solid #888; box-shadow: none; padding: 4mm 5mm; flex: 1; }
+    .ams-tile::before { display: none; }
+    .ams-tile .value { font-size: 14pt; color: #000; }
+
+    .print-only { display: block !important; }
+}

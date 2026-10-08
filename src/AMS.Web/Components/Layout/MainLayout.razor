@@ -1,4 +1,4 @@
-@inherits LayoutComponentBase
+﻿@inherits LayoutComponentBase
 
 <div class="ams-shell @(_navOpen ? "nav-open" : "")">
     <aside class="ams-sidebar">
@@ -11,6 +11,12 @@
         <header class="ams-topbar">
             <button class="ams-burger" @onclick="ToggleNav" aria-label="Toggle navigation">&#9776;</button>
             <span class="ams-topbar-title">Asset Management System</span>
+            <AuthorizeView>
+                <Authorized>
+                    <button class="ams-btn ghost no-print" style="margin-left:auto;"
+                            onclick="window.print()" title="Print this screen">Print</button>
+                </Authorized>
+            </AuthorizeView>
             <AuthorizeView>
                 <Authorized>
                     <span class="ams-topbar-user">@context.User.Identity?.Name</span>

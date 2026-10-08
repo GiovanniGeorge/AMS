@@ -5,6 +5,8 @@ using AMS.Application.Audit;
 using AMS.Application.Common;
 using AMS.Application.Inventory;
 using AMS.Application.Maintenance;
+using AMS.Application.MasterData;
+using AMS.Application.Reports;
 using AMS.Application.Procurement;
 using AMS.Application.Transactions;
 using AMS.Infrastructure.Persistence;
@@ -33,6 +35,8 @@ public static class DependencyInjection
         services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<IAssetService, AssetService>();
+        services.AddScoped<IDirectoryService, DirectoryService>();
+        services.AddScoped<IReportService, ReportService>();
         services.AddScoped<IAssetIssuanceService, AssetIssuanceService>();
         services.AddScoped<IReturnService, ReturnService>();
         services.AddScoped<ITransferService, TransferService>();

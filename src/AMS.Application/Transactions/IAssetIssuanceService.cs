@@ -35,6 +35,13 @@ public interface IAssetIssuanceService
     /// <summary>Creates the Issue + AssetAssignment pair. Returns the assignment Id.</summary>
     Task<int> CreateAsync(IssuanceRequest request);
 
+    /// <summary>
+    /// Administrator only: creates the issuance and approves it in the same step, so the asset
+    /// moves to the employee at once. Used by the Assign button on the employee and asset screens -
+    /// the administrator is the approver, so asking him to approve his own request adds nothing.
+    /// </summary>
+    Task<int> CreateApprovedAsync(IssuanceRequest request);
+
     /// <summary>Approver only. The asset takes the custodian, department and location and becomes Assigned.</summary>
     Task ApproveAsync(int assignmentId);
 

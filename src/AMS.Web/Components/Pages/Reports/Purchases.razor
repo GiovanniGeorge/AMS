@@ -1,0 +1,285 @@
+﻿@page "/reports/purchases"
+@inject IReportService ReportService
+
+<PageTitle>Purchases Report</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Purchases Report</h1>
+        <div class="sub">What was bought in a period, and whether it was ever put to use</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+        @if (_report is not null)
+        {
+            @if (_csv is null)
+            {
+                <button class="ams-btn ghost" @onclick="PrepareCsv">Export CSV</button>
+            }
+            else
+            {
+                <a class="ams-btn ghost" href="@_csv" download="purchases.csv">Download purchases.csv</a>
+            }
+        }
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    <div class="ams-toolbar ams-filters">
+        <label>From <input type="date" @bind="_from" /></label>
+        <label>To <input type="date" @bind="_to" /></label>
+        <button class="ams-btn" @onclick="RunAsync" disabled="@_running">
+            @(_running ? "Running…" : "Run report")
+        </button>
+        <span class="ams-muted">Quick range:</span>
+        <button class="ams-btn ghost" @onclick="() => SetRangeAsync(30)">Last 30 days</button>
+        <button class="ams-btn ghost" @onclick="() => SetRangeAsync(90)">Last 90 days</button>
+        <button class="ams-btn ghost" @onclick="SetThisYearAsync">This year</button>
+    </div>
+</div>
+
+@if (_report is not null)
+{
+    <div class="print-only ams-print-head">
+        <h2>Purchases &amp; Usage Report</h2>
+        <div class="meta">
+            <div><strong>Period:</strong> @_report.From.ToString("yyyy-MM-dd") to @_report.To.ToString("yyyy-MM-dd")</div>
+            <div><strong>Assets added:</strong> @_report.Assets.Count — used @_report.AssetsUsed, never used @_report.AssetsUnused</div>
+            <div><strong>Gaps:</strong> @_report.AssetsWithoutPurchaseDate with no purchase date, @_report.AssetsWithoutCost with no cost</div>
+            <div><strong>Total cost:</strong> @_report.CostTotal.ToString("N2") (tied up in unused: @_report.CostUnused.ToString("N2"))</div>
+            <div><strong>Printed:</strong> @DateTime.Now.ToString("yyyy-MM-dd HH:mm")</div>
+        </div>
+        <hr class="ams-print-rule" />
+    </div>
+
+    @* ---------------------------------------------- the answer, in four numbers *@
+    <div class="ams-tiles" style="margin-top:16px;">
+        <div class="ams-tile">
+            <div class="label">Assets added</div>
+            <div class="value">@_report.Assets.Count</div>
+        </div>
+        <div class="ams-tile">
+            <div class="label">Used</div>
+            <div class="value">@_report.AssetsUsed</div>
+        </div>
+        <div class="ams-tile">
+            <div class="label">Never used</div>
+            <div class="value">@_report.AssetsUnused</div>
+        </div>
+        <div class="ams-tile">
+            <div class="label">Tied up in unused</div>
+            <div class="value">@_report.CostUnused.ToString("N2")</div>
+        </div>
+        <div class="ams-tile">
+            <div class="label">No purchase date</div>
+            <div class="value">@_report.AssetsWithoutPurchaseDate</div>
+        </div>
+        <div class="ams-tile">
+            <div class="label">No cost on record</div>
+            <div class="value">@_report.AssetsWithoutCost</div>
+        </div>
+    </div>
+
+    @* ---------------------------------------------- assets *@
+    <div class="ams-card" style="margin-top:16px;">
+        <h2 class="ams-section-title">
+            Assets added @_report.From.ToString("yyyy-MM-dd") &rarr; @_report.To.ToString("yyyy-MM-dd")
+        </h2>
+
+        @if (_report.Assets.Count == 0)
+        {
+            <div class="ams-empty">No asset entered the books in this period.</div>
+        }
+        else
+        {
+            <table class="ams-table">
+                <thead>
+                    <tr>
+                        <th>Asset No.</th><th>Name</th><th>Category</th><th>Supplier</th>
+                        <th>Date</th><th>Basis</th><th>Cost</th><th>Used?</th><th>First used</th>
+                        <th>Days idle</th><th>Held by</th><th>Stage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in _report.Assets)
+                    {
+                        <tr class="@(a.Used ? "" : "is-inactive")">
+                            <td><a class="ams-link" href="assets/@a.AssetId">@a.AssetNumber</a></td>
+                            <td>@a.Name</td>
+                            <td>@(a.Category ?? "—")</td>
+                            <td>@(a.Supplier ?? "—")</td>
+                            <td>@a.Date.ToString("yyyy-MM-dd")</td>
+                            <td>@(a.DateIsPurchase ? "Purchased" : "Registered")</td>
+                            <td>@(a.Cost?.ToString("N2") ?? "—")</td>
+                            <td>@(a.Used ? "Used" : "Never used")</td>
+                            <td>@(a.FirstUsedOn?.ToString("yyyy-MM-dd") ?? "—")</td>
+                            <td>@(a.DaysToFirstUse?.ToString() ?? "—")</td>
+                            <td>@(a.CurrentCustodian ?? "—")</td>
+                            <td><StageBadge Stage="a.Stage" /></td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th colspan="6">Total</th>
+                        <th>@_report.CostTotal.ToString("N2")</th>
+                        <th colspan="5">
+                            used @_report.CostUsed.ToString("N2") ·
+                            never used @_report.CostUnused.ToString("N2")
+                        </th>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <p class="ams-hint">
+                An asset counts as used once it has had one approved custody, whenever that happened —
+                so something bought in March and first issued in July still counts as used, with the
+                wait shown under "Days idle".
+                <br />
+                "Basis" says which date the row is reported under: <strong>Purchased</strong> when a
+                purchase date was entered, <strong>Registered</strong> when it was not, so an asset
+                entered without a date still appears instead of being dropped. The cost column is
+                empty for an asset whose cost was never entered, and those add nothing to the totals —
+                the two tiles above count both gaps.
+            </p>
+        }
+    </div>
+
+    @* ---------------------------------------------- consumable items *@
+    <div class="ams-card" style="margin-top:16px;">
+        <h2 class="ams-section-title">Store items received (@_report.Items.Count)</h2>
+
+        @if (_report.Items.Count == 0)
+        {
+            <div class="ams-empty">No store item was received in this period.</div>
+        }
+        else
+        {
+            <table class="ams-table">
+                <thead>
+                    <tr><th>Item</th><th>Unit</th><th>Received</th><th>Consumed in the period</th><th>Difference</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var i in _report.Items)
+                    {
+                        <tr>
+                            <td>@i.Name</td>
+                            <td>@(i.Unit ?? "—")</td>
+                            <td>@i.Received.ToString("N2")</td>
+                            <td>@i.Consumed.ToString("N2")</td>
+                            <td>@((i.Received - i.Consumed).ToString("N2"))</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th colspan="2">Total</th>
+                        <th>@_report.ItemsReceived.ToString("N2")</th>
+                        <th>@_report.ItemsConsumed.ToString("N2")</th>
+                        <th>@((_report.ItemsReceived - _report.ItemsConsumed).ToString("N2"))</th>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <p class="ams-hint">
+                Stock is kept as one balance per item and store, not batch by batch, so "consumed"
+                is what left the stores during the same period — not necessarily out of this delivery.
+                Read the two columns as a comparison, not as a trace of one batch.
+            </p>
+        }
+    </div>
+}
+
+@code {
+    private DateTime _from = DateTime.Today.AddDays(-30);
+    private DateTime _to = DateTime.Today;
+
+    private PurchaseReport? _report;
+    private bool _running;
+    private string? _csv;
+    private string? _error;
+
+    private async Task RunAsync()
+    {
+        _error = null;
+        _csv = null;
+
+        if (_from == default || _to == default) { _error = "Choose both dates."; return; }
+        if (_from > _to) { _error = "The start date must come before the end date."; return; }
+
+        _running = true;
+
+        try
+        {
+            _report = await ReportService.GetPurchasesAsync(_from, _to);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _running = false; }
+    }
+
+    private async Task SetRangeAsync(int days)
+    {
+        _to = DateTime.Today;
+        _from = DateTime.Today.AddDays(-days);
+        await RunAsync();
+    }
+
+    private async Task SetThisYearAsync()
+    {
+        _to = DateTime.Today;
+        _from = new DateTime(DateTime.Today.Year, 1, 1);
+        await RunAsync();
+    }
+
+    /// <summary>Both tables in one file, same data: link approach as the rest of AMS.</summary>
+    private void PrepareCsv()
+    {
+        if (_report is null) return;
+
+        var text = new System.Text.StringBuilder();
+
+        text.AppendLine($"Purchases {_report.From:yyyy-MM-dd} to {_report.To:yyyy-MM-dd}");
+        text.AppendLine();
+        text.AppendLine("ASSETS");
+        text.AppendLine("Asset No.,Name,Category,Supplier,Date,Basis,Cost,Used,First used,Days idle,Held by,Stage");
+
+        foreach (var a in _report.Assets)
+        {
+            text.AppendLine(string.Join(',', new[]
+            {
+                Csv(a.AssetNumber), Csv(a.Name), Csv(a.Category), Csv(a.Supplier),
+                Csv(a.Date.ToString("yyyy-MM-dd")), Csv(a.DateBasis), Csv(a.Cost?.ToString("0.00")),
+                Csv(a.Used ? "Used" : "Never used"), Csv(a.FirstUsedOn?.ToString("yyyy-MM-dd")),
+                Csv(a.DaysToFirstUse?.ToString()), Csv(a.CurrentCustodian), Csv(a.Stage.ToString())
+            }));
+        }
+
+        text.AppendLine();
+        text.AppendLine("STORE ITEMS");
+        text.AppendLine("Item,Unit,Received,Consumed in the period,Difference");
+
+        foreach (var i in _report.Items)
+        {
+            text.AppendLine(string.Join(',', new[]
+            {
+                Csv(i.Name), Csv(i.Unit), Csv(i.Received.ToString("0.00")),
+                Csv(i.Consumed.ToString("0.00")), Csv((i.Received - i.Consumed).ToString("0.00"))
+            }));
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes("﻿" + text.ToString());
+        _csv = "data:text/csv;base64," + Convert.ToBase64String(bytes);
+    }
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n')
+            ? "\"" + value.Replace("\"", "\"\"") + "\""
+            : value;
+    }
+}

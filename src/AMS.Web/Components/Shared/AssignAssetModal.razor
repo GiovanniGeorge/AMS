@@ -1,0 +1,220 @@
+@* Assign an asset to an employee without leaving the screen you are on.
+
+   Everyone may use it, but it does two different things:
+     - administrator: the asset moves at once (CreateApprovedAsync)
+     - anyone else:   a request is raised and waits for the administrator (CreateAsync)
+   The service checks the role again; this component only decides what is on screen.
+
+   Fix one side and the other is chosen here: pass EmployeeId from the employee
+   screen (pick the asset), or AssetId from the asset screen (pick the person). *@
+
+@inject IAssetIssuanceService Issuance
+@inject ICurrentUserService CurrentUser
+@inject ICrudService<Employee> Employees
+@inject ICrudService<Store> Stores
+@inject ICrudService<Location> Locations
+
+<ModalForm Visible="Visible" Title="@Title" OnSave="SaveAsync" OnCancel="CancelAsync">
+    @if (_error is not null)
+    {
+        <div class="ams-alert">@_error</div>
+    }
+
+    @if (_loading)
+    {
+        <div class="ams-empty">Loading&hellip;</div>
+    }
+    else
+    {
+        @if (AssetId is null)
+        {
+            <div class="ams-field">
+                <label>Asset *</label>
+                @if (_assets.Count == 0)
+                {
+                    <div class="ams-empty" style="padding:8px 0;">
+                        No asset is available to assign. An asset can only be issued while it is
+                        In store and has no request waiting.
+                    </div>
+                }
+                else
+                {
+                    <select @bind="_assetId">
+                        <option value="0">— select —</option>
+                        @foreach (var a in _assets)
+                        {
+                            <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                        }
+                    </select>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="ams-field"><label>Asset</label><input value="@AssetLabel" readonly /></div>
+        }
+
+        @if (EmployeeId is null)
+        {
+            <div class="ams-field">
+                <label>Employee *</label>
+                <select @bind="_employeeId">
+                    <option value="0">— select —</option>
+                    @foreach (var e in _employees)
+                    {
+                        <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
+                    }
+                </select>
+            </div>
+        }
+        else
+        {
+            <div class="ams-field"><label>Employee</label><input value="@EmployeeLabel" readonly /></div>
+        }
+
+        <div class="ams-field">
+            <label>From store *</label>
+            <select @bind="_storeId">
+                <option value="0">— select —</option>
+                @foreach (var s in _stores)
+                {
+                    <option value="@s.Id">@s.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field">
+            <label>Location</label>
+            <select @bind="_locationId">
+                <option value="">— none —</option>
+                @foreach (var l in _locations)
+                {
+                    <option value="@l.Id">@l.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="ams-field"><label>Date *</label><input type="date" @bind="_date" /></div>
+        <div class="ams-field"><label>Notes</label><input @bind="_notes" /></div>
+
+        <p class="ams-hint">
+            @if (_isAdmin)
+            {
+                <text>
+                    The asset moves to the employee immediately: you are the approver, so there is
+                    nothing left to wait for. The step is written to the audit log either way.
+                </text>
+            }
+            else
+            {
+                <text>
+                    This raises a request. The asset stays where it is until the administrator
+                    approves it; you can follow it on the Asset Issuance screen.
+                </text>
+            }
+        </p>
+    }
+</ModalForm>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+
+    /// <summary>Fixed employee (the employee screen). Null means pick one here.</summary>
+    [Parameter] public int? EmployeeId { get; set; }
+
+    /// <summary>Fixed asset (the asset screen). Null means pick one here.</summary>
+    [Parameter] public int? AssetId { get; set; }
+
+    [Parameter] public string? EmployeeLabel { get; set; }
+    [Parameter] public string? AssetLabel { get; set; }
+
+    /// <summary>Raised after a successful save, with true when the asset actually moved.</summary>
+    [Parameter] public EventCallback<bool> OnAssigned { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private List<Asset> _assets = new();
+    private List<Employee> _employees = new();
+    private List<Store> _stores = new();
+    private List<Location> _locations = new();
+
+    private int _assetId;
+    private int _employeeId;
+    private int _storeId;
+    private int? _locationId;
+    private DateTime _date = DateTime.Today;
+    private string? _notes;
+
+    private bool _isAdmin;
+    private bool _loading;
+    private bool _loaded;
+    private string? _error;
+
+    private string Title => _isAdmin ? "Assign Asset" : "Request Asset Assignment";
+
+    // The lists are only worth fetching once the modal is actually opened.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Visible)
+        {
+            _loaded = false;
+            return;
+        }
+
+        if (_loaded) return;
+        _loaded = true;
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _isAdmin = await CurrentUser.IsInRoleAsync(AppRoles.Admin);
+
+            if (AssetId is null) _assets = await Issuance.GetIssuableAssetsAsync();
+            if (EmployeeId is null) _employees = await Employees.GetAllAsync();
+            _stores = await Stores.GetAllAsync();
+            _locations = await Locations.GetAllAsync();
+
+            _assetId = AssetId ?? 0;
+            _employeeId = EmployeeId ?? 0;
+            _storeId = _stores.Count == 1 ? _stores[0].Id : 0;
+            _locationId = null;
+            _date = DateTime.Today;
+            _notes = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+
+        var assetId = AssetId ?? _assetId;
+        var employeeId = EmployeeId ?? _employeeId;
+
+        if (assetId == 0) { _error = "Choose an asset."; return; }
+        if (employeeId == 0) { _error = "Choose an employee."; return; }
+        if (_storeId == 0) { _error = "Choose the store the asset leaves from."; return; }
+        if (_date == default) { _error = "Choose a date."; return; }
+
+        var request = new IssuanceRequest(assetId, _storeId, employeeId, null, _locationId, _date, _notes);
+
+        try
+        {
+            if (_isAdmin) await Issuance.CreateApprovedAsync(request);
+            else await Issuance.CreateAsync(request);
+
+            _loaded = false;
+            await OnAssigned.InvokeAsync(_isAdmin);
+        }
+        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task CancelAsync()
+    {
+        _loaded = false;
+        _error = null;
+        await OnCancel.InvokeAsync();
+    }
+}

@@ -1,16 +1,19 @@
 ﻿@page "/master/users"
 @attribute [Authorize(Roles = AppRoles.Admin)]
+@inject IDirectoryService Directory
 @inject ICrudService<User> Service
 @inject ICrudService<Role> RoleService
 @inject ICrudService<UserRole> UserRoleService
+@inject ICrudService<Employee> Employees
 @inject IPasswordHasher Hasher
+@inject NavigationManager Nav
 
 <PageTitle>Users</PageTitle>
 
 <div class="ams-page-head">
     <div>
         <h1>Users</h1>
-        <div class="sub">Login accounts &middot; @(_rows?.Count ?? 0) record(s)</div>
+        <div class="sub">Login accounts &middot; @_total record(s)</div>
     </div>
     <button class="ams-btn" @onclick="OpenNew">+ New User</button>
 </div>
@@ -21,8 +24,11 @@
 }
 
 <div class="ams-card">
-    <div class="ams-toolbar">
-        <label><input type="checkbox" @bind="_showInactive" @bind:after="LoadAsync" /> Show inactive</label>
+    <div class="ams-toolbar ams-filters">
+        <input class="ams-search" placeholder="Search username or employee name…"
+               @bind="_search" @bind:after="SearchAsync" />
+
+        <label><input type="checkbox" @bind="_showInactive" @bind:after="SearchAsync" /> Show inactive</label>
     </div>
 
     @if (_rows is null)
@@ -31,25 +37,38 @@
     }
     else if (_rows.Count == 0)
     {
-        <div class="ams-empty">No records yet.</div>
+        <div class="ams-empty">No user matches this search.</div>
     }
     else
     {
         <table class="ams-table">
             <thead>
-                <tr><th>#</th><th>Username</th><th>Roles</th><th>Created</th><th>Created by</th><th>Status</th><th class="actions">Actions</th></tr>
+                <tr>
+                    <th>Username</th><th>Employee</th><th>Roles</th><th>Created</th>
+                    <th>Created by</th><th>Status</th><th class="actions">Actions</th>
+                </tr>
             </thead>
             <tbody>
                 @foreach (var r in _rows)
                 {
                     <tr class="@(r.IsActive ? "" : "is-inactive")">
-                        <td>@r.Id</td>
-                        <td>@r.Username</td>
+                        <td><a class="ams-link" href="master/users/@r.Id">@r.Username</a></td>
+                        <td>
+                            @if (r.Employee is null)
+                            {
+                                <span class="ams-muted">—</span>
+                            }
+                            else
+                            {
+                                <a class="ams-link" href="master/employees/@r.Employee.Id">@r.Employee.Name</a>
+                            }
+                        </td>
                         <td>@RoleNames(r.Id)</td>
                         <td>@r.CreatedOn.ToString("yyyy-MM-dd")</td>
                         <td><UserName Id="r.CreatedById" Names="_userNames" /></td>
                         <td><StatusBadge Active="r.IsActive" /></td>
                         <td class="actions">
+                            <button class="ams-btn link" @onclick='() => Nav.NavigateTo($"master/users/{r.Id}")'>View</button>
                             <button class="ams-btn link" @onclick="() => OpenEditAsync(r.Id)">Edit</button>
                             <button class="ams-btn link @(r.IsActive ? "danger" : "")" @onclick="() => ToggleAsync(r)">
                                 @(r.IsActive ? "Deactivate" : "Activate")
@@ -59,6 +78,8 @@
                 }
             </tbody>
         </table>
+
+        <Pager Page="_page" Total="_total" PageChanged="GoToPageAsync" />
     }
 </div>
 
@@ -69,6 +90,20 @@
         <div class="ams-field">
             <label>Password @(_editing.Id == 0 ? "*" : "(leave empty to keep current)")</label>
             <input type="password" @bind="_password" />
+        </div>
+        <div class="ams-field">
+            <label>Employee *</label>
+            <select @bind="_editing.EmployeeId">
+                <option value="">— select —</option>
+                @foreach (var e in _employees)
+                {
+                    <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
+                }
+            </select>
+            <span class="ams-hint">
+                Every login belongs to a person. The assets that person holds are shown on
+                their employee page; the login itself holds nothing.
+            </span>
         </div>
         <div class="ams-field">
             <label>Roles</label>
@@ -97,27 +132,58 @@
     private List<User>? _rows;
     private List<Role> _roles = new();
     private List<UserRole> _userRoles = new();
+    private List<Employee> _employees = new();
 
     private User? _editing;
     private HashSet<int> _selectedRoleIds = new();
     private string _password = string.Empty;
     private string _title = string.Empty;
+
+    private string? _search;
     private bool _showInactive;
     private string? _error;
     private Dictionary<int, string> _userNames = new();
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    private int _page = 1;
+    private int _total;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _userNames = (await Service.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+            _employees = await Employees.GetAllAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
         try
         {
-            _rows = await Service.GetAllAsync(_showInactive); _userNames = (await Service.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
+            var result = await Directory.SearchUsersAsync(_search, _showInactive, _page);
+            _rows = result.Items;
+            _total = result.Total;
+
             _roles = await RoleService.GetAllAsync();
             _userRoles = await UserRoleService.GetAllAsync(false, ur => ur.Role!);
             _error = null;
         }
         catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task SearchAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        _page = page;
+        await LoadAsync();
     }
 
     private string RoleNames(int userId)
@@ -167,6 +233,17 @@
         if (_editing is null) return;
         if (string.IsNullOrWhiteSpace(_editing.Username)) { _error = "Username is required."; return; }
         if (_editing.Id == 0 && string.IsNullOrWhiteSpace(_password)) { _error = "Password is required for a new user."; return; }
+        if (_editing.EmployeeId is null or 0) { _error = "Choose the employee this login belongs to."; return; }
+
+        // Checked here so the clash is explained in words. The unique index in the database
+        // is still what guarantees it, including against two people saving at the same moment.
+        var taken = await Directory.LoginForEmployeeAsync(_editing.EmployeeId.Value, _editing.Id);
+        if (taken is not null)
+        {
+            _error = $"This employee already has a login ({taken}). One person has one login - "
+                     + "deactivate that account first, or pick another employee.";
+            return;
+        }
 
         try
         {
@@ -174,6 +251,9 @@
             {
                 _editing.PasswordHash = Hasher.Hash(_password);
             }
+
+            // The navigation property is not saved - only the foreign key.
+            _editing.Employee = null;
 
             if (_editing.Id == 0) await Service.AddAsync(_editing);
             else await Service.UpdateAsync(_editing);

@@ -37,7 +37,8 @@ In store ──issue──► Assigned ──return──► In store
 | **Inventory** | Receive · Return · Stock adjustments · Stock balances |
 | **Maintenance** | Preventive plans · Work orders · Contracts (AMC) · Incidents |
 | **Procurement** | Purchase orders · Invoices · Suppliers |
-| **Master data** | Categories · Brands · Units · Locations · Departments · Employees · Asset statuses · Suppliers · Vendors · Stores · Items · Users · Roles |
+| **Reports** | Purchases & usage — what entered the books in a period and whether it was ever put to use |
+| **Master data** | Categories · Brands · Units · Locations · Departments · Employees (searchable, with a custody page) · Asset statuses · Suppliers · Vendors · Stores · Items · Users · Roles |
 | **Administration** | Audit log · Role management |
 
 ### Screens
@@ -50,8 +51,10 @@ In store ──issue──► Assigned ──return──► In store
 | ![Asset details](docs/screenshots/03-asset-details.jpg) | ![Asset history](docs/screenshots/04-asset-history.jpg) |
 | **Preventive maintenance** — what is due now; the work order is opened by a button, never automatically | **Depreciation** — preview every asset before posting, with the reason each skipped one was skipped |
 | ![Preventive maintenance](docs/screenshots/06-maintenance.jpg) | ![Depreciation](docs/screenshots/07-depreciation.jpg) |
-| **Stock balances** — one line per store and item, flagged against the item's minimum and reorder point | |
-| ![Stock balances](docs/screenshots/08-stock.jpg) | |
+| **Stock balances** — one line per store and item, flagged against the item's minimum and reorder point | **Purchases & usage** — what entered the books in a period, what was used, and what is still sitting unused |
+| ![Stock balances](docs/screenshots/08-stock.jpg) | ![Purchases report](docs/screenshots/09-purchases-report.jpg) |
+| **Employee custody** — everything one person holds, their full custody history, and a printable statement for them to sign | |
+| ![Employee custody](docs/screenshots/10-employee-custody.jpg) | |
 
 ### How work gets approved
 
@@ -59,6 +62,17 @@ Requests that move or retire an asset (issuance, transfer, incidents, disposal) 
 `Pending` and decided by the **Admin** role. A rejection always carries a reason, which the
 requester sees. Transactions that only record a fact (return, receive, stock adjustment,
 revaluation) apply immediately.
+
+### Reporting
+
+**Purchases & usage** answers one question over a date range: *what did we buy, and did we
+ever use it?* An asset counts as used once it has had one approved custody — whenever that
+happened — and the report shows how long it waited. Consumable items are reported alongside:
+what was received against what left the stores in the same period.
+
+Nothing is silently dropped. An asset entered without a purchase date is still reported, dated
+by its registration instead and marked `Registered` in the **Basis** column, and two counters
+show how many rows are missing a purchase date or a cost.
 
 ### Other behaviour worth knowing
 
@@ -71,6 +85,15 @@ revaluation) apply immediately.
 - **Full audit trail**: every insert, update and deactivation is recorded with the old and new
   values, plus login, logout and failed logins. Passwords are never recorded.
 - **Attachments** (photos, invoices, contracts) are stored in the database, up to 5 MB each.
+- **Custody belongs to the employee, not the login.** Every user account is linked to exactly
+  one employee, and one employee has at most one active account — enforced by a filtered unique
+  index, not only by the screen.
+- **Assigning is one step for the admin, a request for everyone else.** The same button on the
+  employee and asset screens moves the asset immediately for an Admin, and raises a `Pending`
+  request for anyone else. Either way the step is written to the audit log.
+- **Every screen prints.** The sidebar, filters, buttons and action columns drop out, table
+  headers repeat on each page, and the employee page prints as an **asset custody statement**
+  with signature lines for the custodian, the store keeper and the administrator.
 
 ---
 
@@ -166,6 +189,8 @@ options.UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(120));
 | `Batch1Transactions` | Incident type as an enum, incident links on work orders and disposals |
 | `CleanupColumnDefaults` | Removes leftover `DEFAULT 0` constraints from required columns |
 | `AdminRoleAndAttachments` | Preventive-plan link, attachment contents, renames the `Approver` role to `Admin` |
+| `UserEmployeeLink` | `User.EmployeeId` — the person a login belongs to |
+| `OneLoginPerEmployee` | Makes that link unique among active accounts |
 
 Three of these contain **hand-written corrections** (EF scaffolded a `RenameColumn` between
 unrelated columns, and an `AlterColumn` from `nvarchar` to `int` that SQL Server rejects). They
@@ -178,7 +203,8 @@ before running `database update`.**
 
 - No hard delete anywhere.
 - No barcode generation (dropped by decision).
-- Paging is applied to the screens that grow with use; small master-data lists load in full.
+- Paging is applied to every list that grows with use, employees and users included; short
+  lookup lists (units, brands, asset statuses) load in full.
 - Transfers and disposals handle one asset at a time in the UI, although the schema supports
   several.
 

@@ -1,0 +1,186 @@
+@page "/master/users/{Id:int}"
+@attribute [Authorize(Roles = AppRoles.Admin)]
+@inject IDirectoryService Directory
+@inject ICrudService<UserRole> UserRoleService
+@inject NavigationManager Nav
+
+<PageTitle>@(_user?.Username ?? "User")</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+@if (_loading)
+{
+    <div class="ams-empty">Loading&hellip;</div>
+}
+else if (_user is null)
+{
+    <div class="ams-empty">This user does not exist.</div>
+    <p><a class="ams-link" href="master/users">&larr; Back to Users</a></p>
+}
+else
+{
+    <div class="ams-page-head">
+        <div>
+            <h1>@_user.Username</h1>
+            <div class="sub">
+                Login account
+                @(_user.Employee is null ? " · not linked to an employee" : " · " + _user.Employee.Name)
+                @(_user.Employee is null ? "" : $" · {_assets.Count} asset(s) in custody")
+            </div>
+        </div>
+        @if (_user.Employee is not null)
+        {
+            <button class="ams-btn" @onclick="() => _assigning = true" disabled="@(!_user.Employee.IsActive)">+ Assign Asset</button>
+        }
+    </div>
+
+    @if (_notice is not null)
+    {
+        <div class="ams-card" style="margin-bottom:12px;"><div class="ams-hint">@_notice</div></div>
+    }
+
+    <div class="ams-card">
+        <h2 class="ams-section-title">Account</h2>
+        <table class="ams-table">
+            <tbody>
+                <tr><th style="width:220px;">Username</th><td>@_user.Username</td></tr>
+                <tr><th>Roles</th><td>@_roles</td></tr>
+                <tr>
+                    <th>Employee</th>
+                    <td>
+                        @if (_user.Employee is null)
+                        {
+                            <span class="ams-muted">— not linked —</span>
+                        }
+                        else
+                        {
+                            <a class="ams-link" href="master/employees/@_user.Employee.Id">
+                                @_user.Employee.EmployeeNumber — @_user.Employee.Name
+                            </a>
+                        }
+                    </td>
+                </tr>
+                <tr><th>Department</th><td>@(_user.Employee?.Department?.Name ?? "—")</td></tr>
+                <tr><th>Created</th><td>@_user.CreatedOn.ToString("yyyy-MM-dd")</td></tr>
+                <tr><th>Status</th><td><StatusBadge Active="_user.IsActive" /></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    @* A login holds nothing by itself: custody belongs to the employee behind it. *@
+    <div class="ams-card" style="margin-top:16px;">
+        <h2 class="ams-section-title">Assets in custody (@_assets.Count)</h2>
+
+        @if (_user.Employee is null)
+        {
+            <div class="ams-empty">
+                This login is not linked to an employee, so it holds nothing. Link it from
+                <a class="ams-link" href="master/users">Users &rarr; Edit</a> to see custody here.
+            </div>
+        }
+        else if (_assets.Count == 0)
+        {
+            <div class="ams-empty">@_user.Employee.Name holds no assets.</div>
+        }
+        else
+        {
+            <table class="ams-table">
+                <thead>
+                    <tr>
+                        <th>Asset No.</th><th>Name</th><th>Category</th><th>Stage</th>
+                        <th>Condition</th><th>Location</th><th>Serial</th><th class="actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in _assets)
+                    {
+                        <tr>
+                            <td><a class="ams-link" href="assets/@a.Id">@a.AssetNumber</a></td>
+                            <td>@a.Name</td>
+                            <td>@(a.Category?.Name ?? "—")</td>
+                            <td><StageBadge Stage="a.LifecycleStage" /></td>
+                            <td>@(a.Status?.Name ?? "—")</td>
+                            <td>@(a.Location?.Name ?? "—")</td>
+                            <td>@(a.SerialNumber ?? "—")</td>
+                            <td class="actions">
+                                <button class="ams-btn link" @onclick='() => Nav.NavigateTo($"assets/{a.Id}")'>View</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            <p class="ams-hint">
+                The full history is on
+                <a class="ams-link" href="master/employees/@_user.Employee.Id">@_user.Employee.Name</a>.
+            </p>
+        }
+    </div>
+
+    <p class="ams-hint" style="margin-top:12px;">
+        <a class="ams-link" href="master/users">&larr; Back to Users</a>
+    </p>
+
+    @if (_user.Employee is not null)
+    {
+        <AssignAssetModal Visible="_assigning"
+                          EmployeeId="_user.Employee.Id"
+                          EmployeeLabel="@($"{_user.Employee.EmployeeNumber} — {_user.Employee.Name}")"
+                          OnAssigned="OnAssignedAsync"
+                          OnCancel="() => _assigning = false" />
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private User? _user;
+    private List<Asset> _assets = new();
+    private string _roles = "—";
+
+    private bool _loading = true;
+    private bool _assigning;
+    private string? _error;
+    private string? _notice;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+
+        try
+        {
+            _user = await Directory.GetUserAsync(Id);
+
+            if (_user is not null)
+            {
+                var links = await UserRoleService.GetAllAsync(false, ur => ur.Role!);
+                var names = links.Where(ur => ur.UserId == Id && ur.Role is not null).Select(ur => ur.Role!.Name);
+                _roles = string.Join(", ", names);
+                if (_roles.Length == 0) _roles = "—";
+
+                _assets = _user.EmployeeId is { } employeeId
+                    ? await Directory.GetEmployeeAssetsAsync(employeeId)
+                    : new List<Asset>();
+            }
+
+            _error = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task OnAssignedAsync(bool moved)
+    {
+        _assigning = false;
+        _notice = moved
+            ? "The asset was assigned and is now in this person's custody."
+            : "The request was raised and is waiting for the administrator's approval.";
+
+        await LoadAsync();
+    }
+}

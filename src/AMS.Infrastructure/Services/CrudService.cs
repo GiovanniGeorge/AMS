@@ -92,11 +92,20 @@ public class CrudService<T> : ICrudService<T> where T : BaseEntity
         }
     }
 
+    /// <summary>
+    /// Loads the row and copies the edited values onto it, so EF marks only the columns
+    /// that really differ. _db.Update() would mark every column as changed, which filled
+    /// the audit log with entries whose before and after were identical.
+    /// </summary>
     public async Task UpdateAsync(T entity)
     {
         try
         {
-            _db.Set<T>().Update(entity);
+            var current = await _db.Set<T>().FindAsync(entity.Id)
+                          ?? throw new InvalidOperationException("This record no longer exists.");
+
+            // Scalar columns only - navigation properties are not touched.
+            _db.Entry(current).CurrentValues.SetValues(entity);
             await _db.SaveChangesAsync();
         }
         finally

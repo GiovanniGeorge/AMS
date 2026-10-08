@@ -12,7 +12,8 @@ public record AssetFilter(
     int? LocationId = null,
     bool IncludeInactive = false,
     int Page = 1,
-    int PageSize = 50);
+    int PageSize = 50,
+    int? StatusId = null);
 
 /// <summary>One page of the register plus the total number of assets that match the filter.</summary>
 public record AssetPage(List<Asset> Items, int Total);

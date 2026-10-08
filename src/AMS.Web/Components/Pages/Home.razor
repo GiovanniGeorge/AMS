@@ -1,5 +1,6 @@
 ﻿@page "/"
 @inject ICrudService<Asset> Assets
+@inject IAssetService AssetSearch
 @inject ICrudService<Category> Categories
 @inject ICrudService<Employee> Employees
 @inject ICrudService<Item> Items
@@ -25,10 +26,18 @@
 }
 
 <div class="ams-tiles">
-    <div class="ams-tile"><div class="label">Active Assets</div><div class="value">@_assets</div></div>
-    <div class="ams-tile"><div class="label">Categories</div><div class="value">@_categories</div></div>
-    <div class="ams-tile"><div class="label">Employees</div><div class="value">@_employees</div></div>
-    <div class="ams-tile"><div class="label">Items</div><div class="value">@_items</div></div>
+    <a class="ams-tile" href="assets"><div class="label">Active Assets</div><div class="value">@_assets</div></a>
+    <a class="ams-tile" href="master/categories"><div class="label">Categories</div><div class="value">@_categories</div></a>
+    <a class="ams-tile" href="master/employees"><div class="label">Employees</div><div class="value">@_employees</div></a>
+    <a class="ams-tile" href="master/items"><div class="label">Items</div><div class="value">@_items</div></a>
+</div>
+
+@* Each stage opens the register already filtered to it. *@
+<div class="ams-tiles" style="margin-top:12px;">
+    <a class="ams-tile" href="assets?stage=InStore"><div class="label">In store</div><div class="value">@_inStore</div></a>
+    <a class="ams-tile" href="assets?stage=Assigned"><div class="label">Assigned</div><div class="value">@_assigned</div></a>
+    <a class="ams-tile" href="assets?stage=UnderMaintenance"><div class="label">Under maintenance</div><div class="value">@_underMaintenance</div></a>
+    <a class="ams-tile" href="assets?stage=Disposed"><div class="label">Disposed</div><div class="value">@_disposed</div></a>
 </div>
 
 @* ------------------------------------------------ Approver: what is waiting *@
@@ -142,6 +151,7 @@
 
 @code {
     private int _assets, _categories, _employees, _items;
+    private int _inStore, _assigned, _underMaintenance, _disposed;
     private bool _isApprover;
 
     private int _pendingIssuance, _pendingTransfers, _pendingIncidents, _pendingDisposals;
@@ -158,6 +168,12 @@
             _categories = (await Categories.GetAllAsync()).Count;
             _employees = (await Employees.GetAllAsync()).Count;
             _items = (await Items.GetAllAsync()).Count;
+
+            // PageSize 1 returns the count without dragging the rows back.
+            _inStore = await CountAsync(LifecycleStage.InStore);
+            _assigned = await CountAsync(LifecycleStage.Assigned);
+            _underMaintenance = await CountAsync(LifecycleStage.UnderMaintenance);
+            _disposed = await CountAsync(LifecycleStage.Disposed);
             _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
             _isApprover = await CurrentUser.IsInRoleAsync(AppRoles.Admin);
         }
@@ -181,6 +197,9 @@
         }
         catch (Exception ex) { _error = ex.Message; }
     }
+
+    private async Task<int> CountAsync(LifecycleStage stage) =>
+        (await AssetSearch.SearchAsync(new AssetFilter(Stage: stage, PageSize: 1))).Total;
 
     private static string Stage(LifecycleStage stage) => stage switch
     {

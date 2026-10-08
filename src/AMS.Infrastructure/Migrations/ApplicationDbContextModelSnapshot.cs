@@ -1118,6 +1118,9 @@ namespace AMS.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedOn")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("EmployeeId")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -1140,6 +1143,10 @@ namespace AMS.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedById");
+
+                    b.HasIndex("EmployeeId")
+                        .IsUnique()
+                        .HasFilter("[EmployeeId] IS NOT NULL AND [IsActive] = 1");
 
                     b.HasIndex("ModifiedById");
 
@@ -2675,10 +2682,17 @@ namespace AMS.Infrastructure.Migrations
                         .HasForeignKey("CreatedById")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("AMS.Domain.Entities.Main.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("AMS.Domain.Entities.Main.User", null)
                         .WithMany()
                         .HasForeignKey("ModifiedById")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Employee");
                 });
 
             modelBuilder.Entity("AMS.Domain.Entities.Main.UserRole", b =>
