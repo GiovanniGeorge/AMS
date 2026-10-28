@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using AMS.Application.Procurement;
 using AMS.Domain.Entities.Main;
 using AMS.Infrastructure.Persistence;
@@ -8,6 +8,9 @@ namespace AMS.Infrastructure.Services;
 
 public class PurchaseOrderService : IPurchaseOrderService
 {
+    /// <summary>Every purchase order number looks like PO-00001.</summary>
+    private const string NumberPrefix = "PO-";
+
     private readonly ApplicationDbContext _db;
 
     public PurchaseOrderService(ApplicationDbContext db)
@@ -55,22 +58,50 @@ public class PurchaseOrderService : IPurchaseOrderService
         return await Orders().FirstOrDefaultAsync(p => p.Id == id);
     }
 
+    // ------------------------------------------------------------------
+    // Numbering
+    // ------------------------------------------------------------------
+
+    public Task<string> PreviewNextNumberAsync() => NextNumberAsync();
+
+    /// <summary>
+    /// Highest existing number + 1, e.g. PO-00007 -> PO-00008. Closed and deactivated
+    /// orders count too, so a number is never reused. If two people save at the same
+    /// instant the unique index rejects the second, and that user simply saves again.
+    /// </summary>
+    private async Task<string> NextNumberAsync()
+    {
+        var existing = await _db.PurchaseOrders
+            .AsNoTracking()
+            .Where(p => p.PurchaseOrderNumber.StartsWith(NumberPrefix))
+            .Select(p => p.PurchaseOrderNumber)
+            .ToListAsync();
+
+        var max = 0;
+        foreach (var number in existing)
+        {
+            if (int.TryParse(number.Substring(NumberPrefix.Length), out var value) && value > max)
+            {
+                max = value;
+            }
+        }
+
+        return $"{NumberPrefix}{max + 1:D5}";
+    }
+
+    // ------------------------------------------------------------------
+    // Writing
+    // ------------------------------------------------------------------
+
     public async Task<int> CreateAsync(PurchaseOrderInput input)
     {
         Validate(input);
 
         try
         {
-            var duplicate = await _db.PurchaseOrders
-                .AnyAsync(p => p.PurchaseOrderNumber == input.PurchaseOrderNumber);
-            if (duplicate)
-            {
-                throw new InvalidOperationException("This purchase order number already exists.");
-            }
-
             var order = new PurchaseOrder
             {
-                PurchaseOrderNumber = input.PurchaseOrderNumber.Trim(),
+                PurchaseOrderNumber = await NextNumberAsync(),
                 SupplierId = input.SupplierId,
                 PurchaseDate = input.PurchaseDate,
                 ExpectedDeliveryDate = input.ExpectedDeliveryDate,
@@ -110,14 +141,7 @@ public class PurchaseOrderService : IPurchaseOrderService
                 throw new InvalidOperationException("A closed purchase order cannot be changed.");
             }
 
-            var duplicate = await _db.PurchaseOrders
-                .AnyAsync(p => p.Id != id && p.PurchaseOrderNumber == input.PurchaseOrderNumber);
-            if (duplicate)
-            {
-                throw new InvalidOperationException("This purchase order number already exists.");
-            }
-
-            order.PurchaseOrderNumber = input.PurchaseOrderNumber.Trim();
+            // The number stays as it was issued; only the contents are editable.
             order.SupplierId = input.SupplierId;
             order.PurchaseDate = input.PurchaseDate;
             order.ExpectedDeliveryDate = input.ExpectedDeliveryDate;
@@ -159,18 +183,13 @@ public class PurchaseOrderService : IPurchaseOrderService
         }
     }
 
+    /// <summary>
+    /// An order with no lines is allowed on purpose: it is raised first and filled in as
+    /// the quotes arrive, and its total is simply zero until then. A line that IS there
+    /// still has to make sense.
+    /// </summary>
     private static void Validate(PurchaseOrderInput input)
     {
-        if (string.IsNullOrWhiteSpace(input.PurchaseOrderNumber))
-        {
-            throw new InvalidOperationException("The purchase order number is required.");
-        }
-
-        if (input.Lines.Count == 0)
-        {
-            throw new InvalidOperationException("A purchase order needs at least one line.");
-        }
-
         foreach (var line in input.Lines)
         {
             if (line.ItemId is null && string.IsNullOrWhiteSpace(line.Description))

@@ -76,7 +76,7 @@
     }
 </div>
 
-<ModalForm Visible="_open" Title="Open work order" OnSave="SaveAsync" OnCancel="Close">
+<ModalForm Visible="_open" Error="@_error" Title="Open work order" OnSave="SaveAsync" OnCancel="Close">
     <div class="ams-grid">
         <div class="ams-field">
             <label>Asset *</label>
@@ -140,7 +140,7 @@
     <p class="ams-hint">The asset becomes <strong>Under maintenance</strong> as soon as the work order is opened.</p>
 </ModalForm>
 
-<ModalForm Visible="_closeId is not null" Title="Close work order" OnSave="CloseWorkOrderAsync" OnCancel="CancelClose">
+<ModalForm Visible="_closeId is not null" Error="@_error" Title="Close work order" OnSave="CloseWorkOrderAsync" OnCancel="CancelClose">
     <div class="ams-grid">
         <div class="ams-field">
             <label>End date *</label>

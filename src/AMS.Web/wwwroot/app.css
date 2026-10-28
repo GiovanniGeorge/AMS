@@ -546,6 +546,23 @@ a.ams-tile:hover .value { color: var(--ams-primary); }
 #blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .9rem; top: .55rem; }
 
 
+/* --------------------------- quick add ---------------------------------
+   The "+ New supplier" affordance that sits under a drop-down, so a missing
+   lookup never forces you to abandon the form you are filling in.
+   ---------------------------------------------------------------------- */
+.ams-quickadd { display: block; margin-top: 5px; }
+.ams-quickadd > .ams-btn.link { padding: 0; font-size: .78rem; }
+
+.ams-quickadd-box {
+    display: flex; flex-direction: column; gap: 6px;
+    border: 1px dashed var(--ams-border); border-radius: var(--ams-radius);
+    padding: 8px; margin-top: 4px; background: var(--ams-surface);
+}
+.ams-quickadd-actions { display: flex; gap: 6px; }
+.ams-quickadd-actions .ams-btn { padding: 5px 12px; font-size: .78rem; }
+
+.ams-alert.small { margin: 0; padding: 6px 9px; font-size: .78rem; }
+
 /* ============================ printing ==================================
    Any screen can be printed: the chrome (sidebar, top bar, filters, buttons,
    action columns) is dropped and what stays is the document itself.

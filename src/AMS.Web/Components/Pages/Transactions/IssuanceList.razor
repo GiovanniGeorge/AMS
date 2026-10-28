@@ -76,7 +76,7 @@
     }
 </div>
 
-<ModalForm Visible="_rejectId is not null" Title="Reject request" OnSave="RejectAsync" OnCancel="CloseReject">
+<ModalForm Visible="_rejectId is not null" Error="@_error" Title="Reject request" OnSave="RejectAsync" OnCancel="CloseReject">
     <div class="ams-field">
         <label>Reason * <span class="ams-muted">(the requester will see it)</span></label>
         <textarea rows="3" @bind="_reason"></textarea>

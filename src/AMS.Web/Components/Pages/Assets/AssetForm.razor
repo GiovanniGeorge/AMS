@@ -73,6 +73,7 @@ else
                         <option value="@s.Id">@s.Name</option>
                     }
                 </select>
+                <QuickAdd TItem="AssetStatus" What="condition" OnAdded="StatusAddedAsync" />
             </div>
             <div class="ams-field">
                 <label>Brand</label>
@@ -83,6 +84,7 @@ else
                         <option value="@b.Id">@b.Name</option>
                     }
                 </select>
+                <QuickAdd TItem="Brand" What="brand" OnAdded="BrandAddedAsync" />
             </div>
             <div class="ams-field"><label>Model</label><input @bind="_asset.Model" /></div>
             <div class="ams-field"><label>Serial number</label><input @bind="_asset.SerialNumber" /></div>
@@ -119,12 +121,21 @@ else
                         <option value="@s.Id">@s.Name</option>
                     }
                 </select>
+                <QuickAdd TItem="Supplier" What="supplier" OnAdded="SupplierAddedAsync" />
             </div>
             <div class="ams-field"><label>Purchase order no.</label><input @bind="_asset.PurchaseOrderNumber" /></div>
             <div class="ams-field"><label>Invoice no.</label><input @bind="_asset.InvoiceNumber" /></div>
             <div class="ams-field"><label>Purchase date</label><input type="date" @bind="_asset.PurchaseDate" /></div>
             <div class="ams-field"><label>Purchase cost</label><input type="number" step="0.01" @bind="_asset.PurchaseCost" /></div>
-            <div class="ams-field"><label>Currency</label><input @bind="_asset.Currency" /></div>
+            <div class="ams-field">
+                <label>Currency</label>
+                <select @bind="_asset.Currency">
+                    @foreach (var c in Currencies.All)
+                    {
+                        <option value="@c">@c</option>
+                    }
+                </select>
+            </div>
             <div class="ams-field"><label>Funding source</label><input @bind="_asset.FundingSource" /></div>
         </div>
     </section>
@@ -162,6 +173,7 @@ else
                             <option value="@l.Id">@l.Name</option>
                         }
                     </select>
+                    <QuickAdd TItem="Location" What="location" OnAdded="LocationAddedAsync" />
                 </div>
                 <div class="ams-field">
                     <label>Department</label>
@@ -172,6 +184,7 @@ else
                             <option value="@d.Id">@d.Name</option>
                         }
                     </select>
+                    <QuickAdd TItem="Department" What="department" OnAdded="DepartmentAddedAsync" />
                 </div>
                 <div class="ams-field">
                     <label>Custodian</label>
@@ -259,6 +272,41 @@ else
             }
         }
         catch (Exception ex) { _error = ex.Message; }
+    }
+
+    // ------------------------------------------------------------------
+    // Quick-add: a lookup added here is reloaded and selected straight away,
+    // so a missing brand or location never costs you the form you are filling in.
+    // ------------------------------------------------------------------
+
+    private async Task StatusAddedAsync(AssetStatus status)
+    {
+        _statuses = await Statuses.GetAllAsync();
+        _asset.StatusId = status.Id;
+    }
+
+    private async Task BrandAddedAsync(Brand brand)
+    {
+        _brands = await Brands.GetAllAsync();
+        _asset.BrandId = brand.Id;
+    }
+
+    private async Task SupplierAddedAsync(Supplier supplier)
+    {
+        _suppliers = await Suppliers.GetAllAsync();
+        _asset.SupplierId = supplier.Id;
+    }
+
+    private async Task LocationAddedAsync(Location location)
+    {
+        _locations = await Locations.GetAllAsync();
+        _asset.LocationId = location.Id;
+    }
+
+    private async Task DepartmentAddedAsync(Department department)
+    {
+        _departments = await Departments.GetAllAsync();
+        _asset.DepartmentId = department.Id;
     }
 
     private async Task UpdatePreviewAsync()

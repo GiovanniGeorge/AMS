@@ -1,7 +1,8 @@
-﻿@page "/purchase-orders"
+@page "/purchase-orders"
 @inject IPurchaseOrderService Orders
 @inject ICrudService<Supplier> Suppliers
 @inject ICrudService<Item> Items
+@inject ICrudService<Unit> Units
 @inject ICrudService<User> Users
 
 <PageTitle>Purchase Orders</PageTitle>
@@ -11,12 +12,12 @@
         <h1>Purchase Orders</h1>
         <div class="sub">@_total order(s) — the total is always the sum of the lines</div>
     </div>
-    <button class="ams-btn" @onclick="OpenNew">+ Purchase Order</button>
+    <button class="ams-btn" @onclick="OpenNewAsync">+ Purchase Order</button>
 </div>
 
-@if (_error is not null)
+@if (_pageError is not null)
 {
-    <div class="ams-alert">@_error</div>
+    <div class="ams-alert">@_pageError</div>
 }
 
 <div class="ams-card">
@@ -54,9 +55,16 @@
                         <td>@p.PurchaseDate?.ToString("yyyy-MM-dd")</td>
                         <td>@p.ExpectedDeliveryDate?.ToString("yyyy-MM-dd")</td>
                         <td>
-                            @foreach (var l in p.Lines)
+                            @if (p.Lines.Count == 0)
                             {
-                                <div>@(l.Item?.Name ?? l.Description) &times; @l.Quantity.ToString("N2") @(l.UnitPrice is null ? "" : "@ " + l.UnitPrice.Value.ToString("N2"))</div>
+                                <span class="ams-muted">no lines yet</span>
+                            }
+                            else
+                            {
+                                @foreach (var l in p.Lines)
+                                {
+                                    <div>@(l.Item?.Name ?? l.Description) &times; @l.Quantity.ToString("N2") @(l.UnitPrice is null ? "" : "@ " + l.UnitPrice.Value.ToString("N2"))</div>
+                                }
                             }
                         </td>
                         <td>@(p.TotalCost?.ToString("N2") ?? "—") @p.Currency</td>
@@ -78,11 +86,15 @@
     }
 </div>
 
-<ModalForm Visible="_open" Title="@(_editId is null ? "New purchase order" : "Edit purchase order")" OnSave="SaveAsync" OnCancel="Close">
+<ModalForm Visible="_open"
+           Title="@(_editId is null ? "New purchase order" : "Edit purchase order " + _number)"
+           Error="@_error"
+           OnSave="SaveAsync"
+           OnCancel="Close">
     <div class="ams-grid">
         <div class="ams-field">
-            <label>Number *</label>
-            <input @bind="_number" />
+            <label>Number</label>
+            <div class="ams-readonly">@_number @(_editId is null ? "(generated on save)" : "")</div>
         </div>
 
         <div class="ams-field">
@@ -94,6 +106,7 @@
                     <option value="@s.Id">@s.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Supplier" What="supplier" OnAdded="SupplierAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -108,12 +121,17 @@
 
         <div class="ams-field">
             <label>Currency</label>
-            <input @bind="_currency" />
+            <select @bind="_currency">
+                @foreach (var c in Currencies.All)
+                {
+                    <option value="@c">@c</option>
+                }
+            </select>
         </div>
 
         <div class="ams-field">
             <label>Total</label>
-            <div class="ams-readonly">@Total.ToString("N2")</div>
+            <div class="ams-readonly">@Total.ToString("N2") @_currency</div>
         </div>
     </div>
 
@@ -148,6 +166,19 @@
                     <option value="@i.Id">@i.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Item" What="item" OnAdded="ItemAddedAsync"
+                      Prepare="i => i.UnitOfMeasureId = _quickUnitId ?? 0"
+                      Validate="ValidateQuickItem">
+                <Extra>
+                    <select @bind="_quickUnitId">
+                        <option value="">— unit of measure —</option>
+                        @foreach (var u in _units)
+                        {
+                            <option value="@u.Id">@u.Name</option>
+                        }
+                    </select>
+                </Extra>
+            </QuickAdd>
         </div>
 
         <div class="ams-field">
@@ -170,17 +201,22 @@
             <button class="ams-btn ghost" @onclick="AddLine">+ Add line</button>
         </div>
     </div>
+
+    <p class="ams-hint">
+        An order can be saved with no lines at all and filled in later. If you have typed a line
+        here and press Save without pressing "+ Add line", it is added for you — nothing is lost.
+    </p>
 </ModalForm>
 
 @code {
     private List<PurchaseOrder>? _rows;
     private List<Supplier> _suppliers = new();
     private List<Item> _items = new();
+    private List<Unit> _units = new();
     private Dictionary<int, string> _userNames = new();
     private string _status = string.Empty;
     private int _total;
     private int _page = 1;
-
 
     private bool _open;
     private int? _editId;
@@ -188,7 +224,7 @@
     private int? _supplierId;
     private DateTime? _date = DateTime.Today;
     private DateTime? _expected;
-    private string? _currency;
+    private string _currency = Currencies.Default;
     private List<PurchaseOrderLineInput> _lines = new();
 
     private int? _lineItemId;
@@ -196,9 +232,24 @@
     private decimal _lineQuantity = 1;
     private decimal? _lineUnitPrice;
 
+    /// <summary>Unit chosen inside the item quick-add.</summary>
+    private int? _quickUnitId;
+
+    /// <summary>An item is counted in something, so the quick-add asks for it too.</summary>
+    private string? ValidateQuickItem() =>
+        _quickUnitId is null ? "Choose the unit this item is counted in." : null;
+
+    /// <summary>Shown inside the dialog.</summary>
     private string? _error;
 
+    /// <summary>Shown on the page itself, for failures that happen with the dialog closed.</summary>
+    private string? _pageError;
+
     private decimal Total => _lines.Sum(l => l.Quantity * (l.UnitPrice ?? 0m));
+
+    /// <summary>True when the line boxes hold something worth keeping.</summary>
+    private bool HasTypedLine =>
+        _lineItemId is not null || !string.IsNullOrWhiteSpace(_lineDescription);
 
     protected override async Task OnInitializedAsync()
     {
@@ -206,9 +257,10 @@
         {
             _suppliers = await Suppliers.GetAllAsync();
             _items = await Items.GetAllAsync();
+            _units = await Units.GetAllAsync();
             _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
         }
-        catch (Exception ex) { _error = ex.Message; }
+        catch (Exception ex) { _pageError = ex.Message; }
 
         await LoadAsync();
     }
@@ -220,11 +272,10 @@
             var result = await Orders.GetAllAsync(string.IsNullOrEmpty(_status) ? null : _status, _page);
             _rows = result.Items;
             _total = result.Total;
-            _error = null;
+            _pageError = null;
         }
-        catch (Exception ex) { _error = ex.Message; }
+        catch (Exception ex) { _pageError = ex.Message; }
     }
-
 
     private async Task GoToAsync(int page)
     {
@@ -238,18 +289,48 @@
         await LoadAsync();
     }
 
-    private void OpenNew()
+    // ------------------------------------------------------------------
+    // Quick-add callbacks
+    // ------------------------------------------------------------------
+
+    private async Task SupplierAddedAsync(Supplier supplier)
+    {
+        _suppliers = await Suppliers.GetAllAsync();
+        _supplierId = supplier.Id;
+    }
+
+    private async Task ItemAddedAsync(Item item)
+    {
+        _items = await Items.GetAllAsync();
+        _lineItemId = item.Id;
+        _quickUnitId = null;
+    }
+
+    // ------------------------------------------------------------------
+    // The dialog
+    // ------------------------------------------------------------------
+
+    private async Task OpenNewAsync()
     {
         _editId = null;
-        _number = null;
         _supplierId = null;
         _date = DateTime.Today;
         _expected = null;
-        _currency = null;
+        _currency = Currencies.Default;
         _lines = new();
         ClearLine();
         _error = null;
         _open = true;
+
+        try
+        {
+            _number = await Orders.PreviewNextNumberAsync();
+        }
+        catch (Exception ex)
+        {
+            _number = "—";
+            _error = ex.Message;
+        }
     }
 
     private void OpenEdit(PurchaseOrder order)
@@ -259,7 +340,7 @@
         _supplierId = order.SupplierId;
         _date = order.PurchaseDate;
         _expected = order.ExpectedDeliveryDate;
-        _currency = order.Currency;
+        _currency = Currencies.Normalise(order.Currency);
         _lines = order.Lines
             .Select(l => new PurchaseOrderLineInput(l.ItemId, l.Description, l.Quantity, l.UnitPrice))
             .ToList();
@@ -276,37 +357,48 @@
         _lineDescription = null;
         _lineQuantity = 1;
         _lineUnitPrice = null;
+        _quickUnitId = null;
     }
 
-    private void AddLine()
+    /// <summary>Moves what is in the line boxes into the list. Returns false and sets the error if it cannot.</summary>
+    private bool TakeTypedLine()
     {
-        _error = null;
-
         if (_lineItemId is null && string.IsNullOrWhiteSpace(_lineDescription))
         {
             _error = "Choose an item or type a description.";
-            return;
+            return false;
         }
 
         if (_lineQuantity <= 0)
         {
             _error = "The quantity must be greater than zero.";
-            return;
+            return false;
         }
 
         _lines.Add(new PurchaseOrderLineInput(_lineItemId, _lineDescription, _lineQuantity, _lineUnitPrice));
         ClearLine();
+        return true;
+    }
+
+    private void AddLine()
+    {
+        _error = null;
+        TakeTypedLine();
     }
 
     private async Task SaveAsync()
     {
         _error = null;
-        if (string.IsNullOrWhiteSpace(_number)) { _error = "The number is required."; return; }
-        if (_lines.Count == 0) { _error = "Add at least one line."; return; }
+
+        // Pressing Save with a line still in the boxes should not throw it away.
+        if (HasTypedLine && !TakeTypedLine())
+        {
+            return;
+        }
 
         try
         {
-            var input = new PurchaseOrderInput(_number!, _supplierId, _date, _expected, _currency, _lines);
+            var input = new PurchaseOrderInput(_supplierId, _date, _expected, _currency, _lines);
 
             if (_editId is int id) await Orders.UpdateAsync(id, input);
             else await Orders.CreateAsync(input);
@@ -319,12 +411,12 @@
 
     private async Task CloseOrderAsync(int id)
     {
-        _error = null;
+        _pageError = null;
         try
         {
             await Orders.CloseAsync(id);
             await LoadAsync();
         }
-        catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+        catch (Exception ex) { _pageError = ex.InnerException?.Message ?? ex.Message; }
     }
 }

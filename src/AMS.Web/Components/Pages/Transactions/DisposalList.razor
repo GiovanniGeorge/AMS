@@ -87,7 +87,7 @@
     }
 </div>
 
-<ModalForm Visible="_open" Title="Disposal request" OnSave="SaveAsync" OnCancel="Close">
+<ModalForm Visible="_open" Error="@_error" Title="Disposal request" OnSave="SaveAsync" OnCancel="Close">
     <div class="ams-grid">
         <div class="ams-field">
             <label>Asset *</label>
@@ -140,7 +140,7 @@
     </p>
 </ModalForm>
 
-<ModalForm Visible="_rejectId is not null" Title="Reject disposal request" OnSave="RejectAsync" OnCancel="CloseReject">
+<ModalForm Visible="_rejectId is not null" Error="@_error" Title="Reject disposal request" OnSave="RejectAsync" OnCancel="CloseReject">
     <div class="ams-field">
         <label>Reason * <span class="ams-muted">(the requester will see it)</span></label>
         <textarea rows="3" @bind="_rejectReason"></textarea>

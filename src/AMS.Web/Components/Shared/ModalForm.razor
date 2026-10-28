@@ -1,4 +1,8 @@
-@* Small reusable dialog. No JavaScript, no Bootstrap JS - just markup + CSS. *@
+@* Small reusable dialog. No JavaScript, no Bootstrap JS - just markup + CSS.
+
+   Error is shown INSIDE the dialog, above the fields. It used to be printed by the
+   page behind the backdrop, so a refused save looked like a dead Save button until
+   you closed the dialog - and closing it threw away what you had typed. *@
 
 @if (Visible)
 {
@@ -10,11 +14,15 @@
                 <button class="ams-btn link" @onclick="OnCancel">&#10005;</button>
             </div>
             <div class="ams-modal-body">
+                @if (!string.IsNullOrWhiteSpace(Error))
+                {
+                    <div class="ams-alert">@Error</div>
+                }
                 @ChildContent
             </div>
             <div class="ams-modal-foot">
                 <button class="ams-btn ghost" @onclick="OnCancel">Cancel</button>
-                <button class="ams-btn" @onclick="OnSave">Save</button>
+                <button class="ams-btn" @onclick="OnSave">@SaveText</button>
             </div>
         </div>
     </div>
@@ -23,6 +31,11 @@
 @code {
     [Parameter] public bool Visible { get; set; }
     [Parameter] public string Title { get; set; } = string.Empty;
+
+    /// <summary>Shown at the top of the dialog. The page keeps owning the message.</summary>
+    [Parameter] public string? Error { get; set; }
+
+    [Parameter] public string SaveText { get; set; } = "Save";
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public EventCallback OnSave { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }

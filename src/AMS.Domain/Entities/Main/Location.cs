@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using AMS.Domain.Common;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AMS.Domain.Entities.Main;
 
-public class Location : BaseEntity
+public class Location : BaseEntity, INamedEntity
 {
     public string Name { get; set; } = string.Empty;
     public int? ParentId { get; set; }

@@ -14,9 +14,9 @@
     <button class="ams-btn" @onclick="OpenNew">+ New Invoice</button>
 </div>
 
-@if (_error is not null)
+@if (_pageError is not null)
 {
-    <div class="ams-alert">@_error</div>
+    <div class="ams-alert">@_pageError</div>
 }
 
 <div class="ams-card">
@@ -67,7 +67,11 @@
     }
 </div>
 
-<ModalForm Visible="_open" Title="@(_editId is null ? "New invoice" : "Edit invoice")" OnSave="SaveAsync" OnCancel="Close">
+<ModalForm Visible="_open"
+           Title="@(_editId is null ? "New invoice" : "Edit invoice")"
+           Error="@_error"
+           OnSave="SaveAsync"
+           OnCancel="Close">
     <div class="ams-grid">
         <div class="ams-field">
             <label>Invoice number *</label>
@@ -83,10 +87,11 @@
                     <option value="@s.Id">@s.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Supplier" What="supplier" OnAdded="SupplierAddedAsync" />
         </div>
 
         <div class="ams-field">
-            <label>Purchase order</label>
+            <label>Purchase order (optional)</label>
             <select @bind="_purchaseOrderId">
                 <option value="">— none —</option>
                 @foreach (var o in _orders)
@@ -108,11 +113,19 @@
 
         <div class="ams-field">
             <label>Currency</label>
-            <input @bind="_currency" />
+            <select @bind="_currency">
+                @foreach (var c in Currencies.All)
+                {
+                    <option value="@c">@c</option>
+                }
+            </select>
         </div>
     </div>
 
-    <p class="ams-hint">The same invoice number can only be used once per supplier.</p>
+    <p class="ams-hint">
+        An invoice does not need a purchase order — leave it on "— none —" for anything bought
+        without one. The same invoice number can only be used once per supplier.
+    </p>
 </ModalForm>
 
 @code {
@@ -132,8 +145,13 @@
     private int? _purchaseOrderId;
     private DateTime? _date = DateTime.Today;
     private decimal? _amount;
-    private string? _currency;
+    private string _currency = Currencies.Default;
+
+    /// <summary>Shown inside the dialog.</summary>
     private string? _error;
+
+    /// <summary>Shown on the page, for failures that happen with the dialog closed.</summary>
+    private string? _pageError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -143,7 +161,7 @@
             _orders = await Orders.GetOpenAsync();
             _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
         }
-        catch (Exception ex) { _error = ex.Message; }
+        catch (Exception ex) { _pageError = ex.Message; }
 
         await LoadAsync();
     }
@@ -155,9 +173,15 @@
             var result = await Invoices.GetPageAsync(_page, _showInactive, i => i.Supplier!, i => i.PurchaseOrder!);
             _rows = result.Items;
             _total = result.Total;
-            _error = null;
+            _pageError = null;
         }
-        catch (Exception ex) { _error = ex.Message; }
+        catch (Exception ex) { _pageError = ex.Message; }
+    }
+
+    private async Task SupplierAddedAsync(Supplier supplier)
+    {
+        _suppliers = await Suppliers.GetAllAsync(true);
+        _supplierId = supplier.Id;
     }
 
 
@@ -181,7 +205,7 @@
         _purchaseOrderId = null;
         _date = DateTime.Today;
         _amount = null;
-        _currency = null;
+        _currency = Currencies.Default;
         _error = null;
         _open = true;
     }
@@ -200,7 +224,7 @@
         _purchaseOrderId = invoice.PurchaseOrderId;
         _date = invoice.InvoiceDate;
         _amount = invoice.Amount;
-        _currency = invoice.Currency;
+        _currency = Currencies.Normalise(invoice.Currency);
         _error = null;
         _open = true;
     }

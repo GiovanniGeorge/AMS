@@ -1,4 +1,4 @@
-@* Assign an asset to an employee without leaving the screen you are on.
+﻿@* Assign an asset to an employee without leaving the screen you are on.
 
    Everyone may use it, but it does two different things:
      - administrator: the asset moves at once (CreateApprovedAsync)
@@ -14,12 +14,7 @@
 @inject ICrudService<Store> Stores
 @inject ICrudService<Location> Locations
 
-<ModalForm Visible="Visible" Title="@Title" OnSave="SaveAsync" OnCancel="CancelAsync">
-    @if (_error is not null)
-    {
-        <div class="ams-alert">@_error</div>
-    }
-
+<ModalForm Visible="Visible" Error="@_error" Title="@Title" OnSave="SaveAsync" OnCancel="CancelAsync">
     @if (_loading)
     {
         <div class="ams-empty">Loading&hellip;</div>

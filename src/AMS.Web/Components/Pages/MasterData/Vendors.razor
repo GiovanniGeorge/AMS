@@ -1,4 +1,4 @@
-@page "/master/vendors"
+﻿@page "/master/vendors"
 @inject ICrudService<Vendor> Service
 @inject ICrudService<User> UserService
 
@@ -58,7 +58,7 @@
     }
 </div>
 
-<ModalForm Visible="_editing is not null" Title="@_title" OnSave="SaveAsync" OnCancel="Cancel">
+<ModalForm Visible="_editing is not null" Error="@_error" Title="@_title" OnSave="SaveAsync" OnCancel="Cancel">
     @if (_editing is not null)
     {
         <div class="ams-field"><label>Name *</label><input @bind="_editing.Name" /></div>

@@ -77,7 +77,17 @@ show how many rows are missing a purchase date or a cost.
 ### Other behaviour worth knowing
 
 - **Nothing is ever hard-deleted.** Every table has `IsActive`; "Delete" is always *Deactivate*.
-- **Asset numbers are generated** from the category prefix (`LAP000-00001`) and never change.
+- **Numbers are generated, never typed.** Assets take the category prefix (`LAP000-00001`),
+  purchase orders are numbered `PO-00001`; neither changes afterwards.
+- **Amounts carry a currency from a fixed list** (EGP, USD, EUR). It used to be a free-text box,
+  which produced "egp", "Egp" and "EGP " for the same currency.
+- **A missing lookup never costs you the form.** Every drop-down that needs a name only —
+  supplier, item, brand, condition, location, department — has a "+ New" box underneath that
+  creates the row and selects it without leaving the screen.
+- **A purchase order can be raised empty** and filled in as the quotes arrive; its total is the
+  sum of its lines, so until then it is zero. An invoice does not need a purchase order either.
+- **Errors appear inside the dialog that caused them**, above the fields, so a refused save
+  explains itself instead of looking like a dead button.
 - **One asset, one open request.** An asset inside an unfinished issuance, transfer or disposal
   cannot be put into another one.
 - **Straight-line depreciation** is computed from purchase cost, the category's useful life
