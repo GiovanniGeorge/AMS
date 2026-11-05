@@ -8,6 +8,7 @@
 @inject ICrudService<Location> Locations
 @inject ICrudService<Department> Departments
 @inject ICrudService<Employee> Employees
+@inject IInvoiceService Invoices
 @inject NavigationManager Nav
 
 <PageTitle>@(IsNew ? "Register Asset" : "Edit Asset")</PageTitle>
@@ -36,7 +37,7 @@ else
         <h2>Basic information</h2>
         <div class="ams-grid">
             <div class="ams-field">
-                <label>Asset number @(IsNew && _preview is null ? "*" : "")</label>
+                <label>Asset number</label>
                 @if (!IsNew)
                 {
                     <div class="ams-readonly">@_asset.AssetNumber</div>
@@ -47,7 +48,7 @@ else
                 }
                 else
                 {
-                    <input @bind="_asset.AssetNumber" placeholder="This category has no prefix — type the number" />
+                    <div class="ams-readonly ams-muted">Choose a category — the number follows from it</div>
                 }
             </div>
             <div class="ams-field">
@@ -63,6 +64,7 @@ else
                         <option value="@c.Id">@c.Name @(string.IsNullOrWhiteSpace(c.NumberingPrefix) ? "" : $"({c.NumberingPrefix})")</option>
                     }
                 </select>
+                <QuickAddCategory OnAdded="QuickCategoryAddedAsync" />
             </div>
             <div class="ams-field">
                 <label>Status *</label>
@@ -124,7 +126,10 @@ else
                 <QuickAdd TItem="Supplier" What="supplier" OnAdded="SupplierAddedAsync" />
             </div>
             <div class="ams-field"><label>Purchase order no.</label><input @bind="_asset.PurchaseOrderNumber" /></div>
-            <div class="ams-field"><label>Invoice no.</label><input @bind="_asset.InvoiceNumber" /></div>
+            @if (!IsNew)
+            {
+                <div class="ams-field"><label>Invoice no.</label><input @bind="_asset.InvoiceNumber" /></div>
+            }
             <div class="ams-field"><label>Purchase date</label><input type="date" @bind="_asset.PurchaseDate" /></div>
             <div class="ams-field"><label>Purchase cost</label><input type="number" step="0.01" @bind="_asset.PurchaseCost" /></div>
             <div class="ams-field">
@@ -138,6 +143,46 @@ else
             </div>
             <div class="ams-field"><label>Funding source</label><input @bind="_asset.FundingSource" /></div>
         </div>
+
+        @if (IsNew)
+        {
+            <div class="ams-field" style="margin-top:6px;">
+                <label style="font-weight:400;">
+                    <input type="checkbox" style="width:auto;margin-right:6px;" @bind="_createInvoice" />
+                    Record a supplier invoice for this asset
+                </label>
+                <span class="ams-hint">
+                    Off by default: an asset can arrive by transfer, donation or from the old register,
+                    and those have no invoice. Tick it and the asset is put on one as a line, using the
+                    supplier, purchase date and cost above.
+                </span>
+            </div>
+
+            @if (_createInvoice)
+            {
+                <div class="ams-grid">
+                    <div class="ams-field">
+                        <label>Invoice</label>
+                        <select @bind="_invoiceId">
+                            <option value="">— raise a new one —</option>
+                            @foreach (var i in _invoices)
+                            {
+                                <option value="@i.Id">@i.InvoiceNumber @(i.Supplier is null ? "" : "· " + i.Supplier.Name)</option>
+                            }
+                        </select>
+                    </div>
+
+                    @if (_invoiceId is null)
+                    {
+                        <div class="ams-field">
+                            <label>New invoice number *</label>
+                            <input @bind="_asset.InvoiceNumber" placeholder="the number on the supplier's invoice" />
+                        </div>
+                    }
+                </div>
+            }
+        }
+
     </section>
 
     @* ------------------------------------------------ Warranty & insurance *@
@@ -195,6 +240,7 @@ else
                             <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
                         }
                     </select>
+                    <QuickAddEmployee OnAdded="QuickEmployeeAddedAsync" />
                 </div>
             </div>
         }
@@ -231,6 +277,11 @@ else
 
     private Asset? _asset;
     private string? _preview;
+
+    /// <summary>Raising the invoice is a decision, so it is a tick box, never automatic.</summary>
+    private bool _createInvoice;
+    private int? _invoiceId;
+    private List<Invoice> _invoices = new();
     private bool _notFound;
     private bool _saving;
     private string? _error;
@@ -249,6 +300,7 @@ else
         try
         {
             _categories = await Categories.GetAllAsync();
+            if (IsNew) await LoadInvoicesAsync();
             _brands = await Brands.GetAllAsync();
             _statuses = await Statuses.GetAllAsync();
             _suppliers = await Suppliers.GetAllAsync();
@@ -258,7 +310,9 @@ else
 
             if (IsNew)
             {
-                _asset = new Asset();
+                // The drop-down shows EGP from the start, so the model has to agree with it;
+                // otherwise an untouched currency box saves nothing at all.
+                _asset = new Asset { Currency = Currencies.Default };
                 // PageSize 0 = no paging: the "Part of" list needs every asset.
                 _parents = (await Assets.SearchAsync(new AssetFilter(PageSize: 0))).Items;
             }
@@ -266,6 +320,10 @@ else
             {
                 _asset = await Assets.GetDetailsAsync(Id!.Value);
                 _notFound = _asset is null;
+
+                // An asset saved before the currency became a list has none, or has it in
+                // another spelling; put it on the list so the box is not silently blank.
+                if (_asset is not null) _asset.Currency = Currencies.Normalise(_asset.Currency);
                 _parents = (await Assets.SearchAsync(new AssetFilter(PageSize: 0))).Items
                     .Where(a => a.Id != Id)
                     .ToList();
@@ -316,6 +374,12 @@ else
         _preview = _asset.CategoryId == 0 ? null : await Assets.PreviewNextNumberAsync(_asset.CategoryId);
     }
 
+    private async Task LoadInvoicesAsync()
+    {
+        try { _invoices = (await Invoices.GetAllAsync(false, 1)).Items; }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
     private async Task SaveAsync()
     {
         if (_asset is null) return;
@@ -324,18 +388,21 @@ else
         if (string.IsNullOrWhiteSpace(_asset.Name)) { _error = "Name is required."; return; }
         if (_asset.CategoryId == 0) { _error = "Category is required."; return; }
         if (_asset.StatusId == 0) { _error = "Status is required."; return; }
-        if (IsNew && _preview is null && string.IsNullOrWhiteSpace(_asset.AssetNumber))
-        {
-            _error = "Asset number is required because this category has no numbering prefix.";
-            return;
-        }
-
         _saving = true;
         try
         {
             if (IsNew)
             {
                 var newId = await Assets.RegisterAsync(_asset);
+
+                // The asset exists first; the invoice line points at it.
+                if (_createInvoice)
+                {
+                    await Invoices.RecordAssetPurchaseAsync(new AssetPurchaseInput(
+                        newId, _invoiceId, _asset.InvoiceNumber, _asset.SupplierId,
+                        _asset.PurchaseDate, _asset.PurchaseCost, _asset.Currency));
+                }
+
                 Nav.NavigateTo($"assets/{newId}");
             }
             else
@@ -355,4 +422,19 @@ else
     }
 
     private void Cancel() => Nav.NavigateTo(IsNew ? "assets" : $"assets/{Id}");
+
+    private async Task QuickCategoryAddedAsync(Category created)
+    {
+        _categories = await Categories.GetAllAsync();
+        _asset.CategoryId = created.Id;
+
+        // The asset number comes from the category prefix, so the preview has to catch up.
+        await UpdatePreviewAsync();
+    }
+
+    private async Task QuickEmployeeAddedAsync(Employee created)
+    {
+        _employees = await Employees.GetAllAsync();
+        _asset.CustodianId = created.Id;
+    }
 }

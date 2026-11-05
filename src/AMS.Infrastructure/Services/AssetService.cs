@@ -9,6 +9,9 @@ namespace AMS.Infrastructure.Services;
 
 public class AssetService : IAssetService
 {
+    /// <summary>Used when the asset's category has no numbering prefix of its own.</summary>
+    private const string DefaultPrefix = "AST";
+
     private readonly ApplicationDbContext _db;
 
     public AssetService(ApplicationDbContext db)
@@ -281,13 +284,16 @@ public class AssetService : IAssetService
     // Numbering
     // ------------------------------------------------------------------
 
-    public async Task<string?> PreviewNextNumberAsync(int categoryId)
-    {
-        var prefix = await GetPrefixAsync(categoryId);
-        return prefix is null ? null : await NextNumberAsync(prefix);
-    }
+    public async Task<string?> PreviewNextNumberAsync(int categoryId) =>
+        await NextNumberAsync(await GetPrefixAsync(categoryId));
 
-    private async Task<string?> GetPrefixAsync(int categoryId)
+    /// <summary>
+    /// The category's own prefix, or AST when it has none. Every asset gets a number
+    /// from the system: typing one by hand was the only way an asset could be registered
+    /// under a category nobody had given a prefix to, and that is not the user's problem.
+    /// An externally issued number belongs in Legacy asset number.
+    /// </summary>
+    private async Task<string> GetPrefixAsync(int categoryId)
     {
         var prefix = await _db.Categories
             .Where(c => c.Id == categoryId)
@@ -296,7 +302,7 @@ public class AssetService : IAssetService
 
         // "LAP-" and "LAP" both mean prefix "LAP".
         prefix = prefix?.Trim().TrimEnd('-');
-        return string.IsNullOrEmpty(prefix) ? null : prefix;
+        return string.IsNullOrEmpty(prefix) ? DefaultPrefix : prefix;
     }
 
     /// <summary>
@@ -332,18 +338,7 @@ public class AssetService : IAssetService
 
     public async Task<int> RegisterAsync(Asset asset)
     {
-        var prefix = await GetPrefixAsync(asset.CategoryId);
-
-        if (prefix is not null)
-        {
-            asset.AssetNumber = await NextNumberAsync(prefix);
-        }
-        else if (string.IsNullOrWhiteSpace(asset.AssetNumber))
-        {
-            throw new InvalidOperationException("Asset number is required because the category has no numbering prefix.");
-        }
-
-        asset.AssetNumber = asset.AssetNumber.Trim();
+        asset.AssetNumber = await NextNumberAsync(await GetPrefixAsync(asset.CategoryId));
         asset.LifecycleStage = asset.CustodianId is null ? LifecycleStage.InStore : LifecycleStage.Assigned;
         asset.IsActive = true;
 

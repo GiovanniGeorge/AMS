@@ -1,8 +1,7 @@
-@page "/purchase-orders"
+﻿@page "/purchase-orders"
 @inject IPurchaseOrderService Orders
 @inject ICrudService<Supplier> Suppliers
 @inject ICrudService<Item> Items
-@inject ICrudService<Unit> Units
 @inject ICrudService<User> Users
 
 <PageTitle>Purchase Orders</PageTitle>
@@ -166,19 +165,7 @@
                     <option value="@i.Id">@i.Name</option>
                 }
             </select>
-            <QuickAdd TItem="Item" What="item" OnAdded="ItemAddedAsync"
-                      Prepare="i => i.UnitOfMeasureId = _quickUnitId ?? 0"
-                      Validate="ValidateQuickItem">
-                <Extra>
-                    <select @bind="_quickUnitId">
-                        <option value="">— unit of measure —</option>
-                        @foreach (var u in _units)
-                        {
-                            <option value="@u.Id">@u.Name</option>
-                        }
-                    </select>
-                </Extra>
-            </QuickAdd>
+            <QuickAddItem OnAdded="ItemAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -212,7 +199,6 @@
     private List<PurchaseOrder>? _rows;
     private List<Supplier> _suppliers = new();
     private List<Item> _items = new();
-    private List<Unit> _units = new();
     private Dictionary<int, string> _userNames = new();
     private string _status = string.Empty;
     private int _total;
@@ -232,12 +218,7 @@
     private decimal _lineQuantity = 1;
     private decimal? _lineUnitPrice;
 
-    /// <summary>Unit chosen inside the item quick-add.</summary>
-    private int? _quickUnitId;
 
-    /// <summary>An item is counted in something, so the quick-add asks for it too.</summary>
-    private string? ValidateQuickItem() =>
-        _quickUnitId is null ? "Choose the unit this item is counted in." : null;
 
     /// <summary>Shown inside the dialog.</summary>
     private string? _error;
@@ -257,7 +238,6 @@
         {
             _suppliers = await Suppliers.GetAllAsync();
             _items = await Items.GetAllAsync();
-            _units = await Units.GetAllAsync();
             _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
         }
         catch (Exception ex) { _pageError = ex.Message; }
@@ -303,7 +283,6 @@
     {
         _items = await Items.GetAllAsync();
         _lineItemId = item.Id;
-        _quickUnitId = null;
     }
 
     // ------------------------------------------------------------------
@@ -357,7 +336,6 @@
         _lineDescription = null;
         _lineQuantity = 1;
         _lineUnitPrice = null;
-        _quickUnitId = null;
     }
 
     /// <summary>Moves what is in the line boxes into the list. Returns false and sets the error if it cannot.</summary>

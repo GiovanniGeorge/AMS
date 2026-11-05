@@ -86,6 +86,7 @@
                         <option value="@u.Id">@u.Name</option>
                     }
                 </select>
+                <QuickAdd TItem="Unit" What="unit" OnAdded="QuickUnitAddedAsync" />
             }
         </div>
         <div class="ams-field"><label>Minimum Level</label><input type="number" step="0.01" @bind="_editing.MinimumLevel" /></div>
@@ -150,5 +151,11 @@
         if (r.IsActive) await Service.DeactivateAsync(r.Id);
         else await Service.ActivateAsync(r.Id);
         await LoadAsync();
+    }
+
+    private async Task QuickUnitAddedAsync(Unit created)
+    {
+        _units = await Units.GetAllAsync();
+        _editing.UnitOfMeasureId = created.Id;
     }
 }

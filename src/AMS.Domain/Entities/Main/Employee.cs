@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using AMS.Domain.Common;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AMS.Domain.Entities.Main;
 
-public class Employee : BaseEntity
+public class Employee : BaseEntity, INamedEntity
 {
     public string EmployeeNumber { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;

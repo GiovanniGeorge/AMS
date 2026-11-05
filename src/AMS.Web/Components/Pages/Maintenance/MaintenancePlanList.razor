@@ -145,6 +145,7 @@
                     <option value="@c.Id">@c.Name</option>
                 }
             </select>
+            <QuickAddCategory OnAdded="QuickCategoryAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -283,5 +284,11 @@
             await LoadAsync();
         }
         catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task QuickCategoryAddedAsync(Category created)
+    {
+        _categories = await Categories.GetAllAsync();
+        _categoryId = created.Id;
     }
 }

@@ -2,6 +2,7 @@
 @inject IAssetService Assets
 @inject ICrudService<User> Users
 @inject IAttachmentService Attachments
+@inject IInvoiceService Invoices
 @inject NavigationManager Nav
 
 <PageTitle>@(_asset?.AssetNumber ?? "Asset")</PageTitle>
@@ -114,7 +115,23 @@ else
         <dl class="ams-dl">
             <div><dt>Supplier</dt><dd>@Show(_asset.Supplier?.Name)</dd></div>
             <div><dt>Purchase order no.</dt><dd>@Show(_asset.PurchaseOrderNumber)</dd></div>
-            <div><dt>Invoice no.</dt><dd>@Show(_asset.InvoiceNumber)</dd></div>
+            <div>
+                <dt>Invoice no.</dt>
+                <dd>
+                    @if (_invoices.Count > 0)
+                    {
+                        @foreach (var i in _invoices)
+                        {
+                            <a class="ams-link" href="invoices">@i.InvoiceNumber</a>
+                            <span class="ams-muted"> · @(i.Amount?.ToString("N2") ?? "—") @i.Currency</span>
+                        }
+                    }
+                    else
+                    {
+                        @Show(_asset.InvoiceNumber)
+                    }
+                </dd>
+            </div>
             <div><dt>Purchase date</dt><dd>@Show(_asset.PurchaseDate?.ToString("yyyy-MM-dd"))</dd></div>
             <div><dt>Purchase cost</dt><dd>@Show(_asset.PurchaseCost?.ToString("N2"), _asset.Currency)</dd></div>
             <div><dt>Funding source</dt><dd>@Show(_asset.FundingSource)</dd></div>
@@ -252,6 +269,7 @@ else
     [Parameter] public int Id { get; set; }
 
     private Asset? _asset;
+    private List<Invoice> _invoices = new();
     private List<Asset> _components = new();
     private List<AssetHistoryEntry> _history = new();
     private Dictionary<int, string> _userNames = new();
@@ -270,6 +288,7 @@ else
         try
         {
             _asset = await Assets.GetDetailsAsync(Id);
+            _invoices = await Invoices.GetForAssetAsync(Id);
             _notFound = _asset is null;
             if (_asset is null) return;
 

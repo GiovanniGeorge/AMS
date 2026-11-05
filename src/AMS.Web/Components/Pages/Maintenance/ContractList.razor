@@ -94,6 +94,7 @@
                     <option value="@v.Id">@v.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Vendor" What="vendor" OnAdded="QuickVendorAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -235,4 +236,10 @@
 
     private static bool IsExpiring(MaintenanceContract c) =>
         c.EndDate is DateTime end && end.Date >= DateTime.Today && end.Date <= DateTime.Today.AddDays(30);
+
+    private async Task QuickVendorAddedAsync(Vendor created)
+    {
+        _vendors = await Vendors.GetAllAsync();
+        _vendorId = created.Id;
+    }
 }

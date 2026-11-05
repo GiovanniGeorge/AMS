@@ -100,6 +100,7 @@
                     <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
                 }
             </select>
+            <QuickAddEmployee OnAdded="QuickEmployeeAddedAsync" />
             <span class="ams-hint">
                 Every login belongs to a person. The assets that person holds are shown on
                 their employee page; the login itself holds nothing.
@@ -297,5 +298,11 @@
         if (r.IsActive) await Service.DeactivateAsync(r.Id);
         else await Service.ActivateAsync(r.Id);
         await LoadAsync();
+    }
+
+    private async Task QuickEmployeeAddedAsync(Employee created)
+    {
+        _employees = await Employees.GetAllAsync();
+        _editing.EmployeeId = created.Id;
     }
 }

@@ -1,0 +1,136 @@
+@* Registers an asset from the invoice that is billing it.
+
+   Not built on QuickAdd: an asset is not a lookup row. Its number comes from the
+   category prefix through IAssetService, and it needs a condition, so it goes through
+   the same RegisterAsync every asset goes through. Purchase cost, date and supplier
+   are left empty here on purpose - the invoice fills them in when it is saved. *@
+
+@inject IAssetService Assets
+@inject ICrudService<Category> Categories
+@inject ICrudService<AssetStatus> Statuses
+
+<span class="ams-quickadd">
+    @if (!_open)
+    {
+        <button type="button" class="ams-btn link" @onclick="Open" title="Register an asset without leaving this invoice">
+            + New asset
+        </button>
+    }
+    else
+    {
+        <div class="ams-quickadd-box">
+            <input placeholder="asset name" @bind="_name" @bind:event="oninput" />
+
+            <select @bind="_categoryId" @bind:after="PreviewAsync">
+                <option value="">— category —</option>
+                @foreach (var c in _categories)
+                {
+                    <option value="@c.Id">@c.Name</option>
+                }
+            </select>
+
+            <select @bind="_statusId">
+                <option value="">— condition —</option>
+                @foreach (var s in _statuses)
+                {
+                    <option value="@s.Id">@s.Name</option>
+                }
+            </select>
+
+            @if (_preview is not null)
+            {
+                <div class="ams-hint">Number: @_preview</div>
+            }
+
+            @if (_error is not null)
+            {
+                <div class="ams-alert small">@_error</div>
+            }
+
+            <div class="ams-quickadd-actions">
+                <button type="button" class="ams-btn" @onclick="SaveAsync" disabled="@_saving">Add</button>
+                <button type="button" class="ams-btn ghost" @onclick="Cancel">Cancel</button>
+            </div>
+        </div>
+    }
+</span>
+
+@code {
+    /// <summary>The registered asset, so the caller can refresh its list and select it.</summary>
+    [Parameter] public EventCallback<Asset> OnAdded { get; set; }
+
+    private List<Category> _categories = new();
+    private List<AssetStatus> _statuses = new();
+
+    private string? _name;
+    private int? _categoryId;
+    private int? _statusId;
+    private string? _preview;
+
+    private bool _open;
+    private bool _saving;
+    private string? _error;
+
+    private async Task Open()
+    {
+        _open = true;
+        _name = null;
+        _categoryId = null;
+        _statusId = null;
+        _preview = null;
+        _error = null;
+
+        try
+        {
+            _categories = await Categories.GetAllAsync();
+            _statuses = await Statuses.GetAllAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void Cancel()
+    {
+        _open = false;
+        _error = null;
+    }
+
+    private async Task PreviewAsync()
+    {
+        _preview = _categoryId is int id ? await Assets.PreviewNextNumberAsync(id) : null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_name)) { _error = "Type the asset name."; return; }
+        if (_categoryId is null) { _error = "Choose a category."; return; }
+        if (_statusId is null) { _error = "Choose the condition."; return; }
+
+        _saving = true;
+
+        try
+        {
+            var asset = new Asset
+            {
+                Name = _name!.Trim(),
+                CategoryId = _categoryId.Value,
+                StatusId = _statusId.Value
+            };
+
+            var id = await Assets.RegisterAsync(asset);
+            asset.Id = id;
+
+            _open = false;
+            await OnAdded.InvokeAsync(asset);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.InnerException?.Message ?? ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

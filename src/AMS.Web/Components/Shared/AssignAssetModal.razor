@@ -60,6 +60,7 @@
                         <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
                     }
                 </select>
+                <QuickAddEmployee OnAdded="QuickEmployeeAddedAsync" />
             </div>
         }
         else
@@ -76,6 +77,7 @@
                     <option value="@s.Id">@s.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Store" What="store" OnAdded="QuickStoreAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -87,6 +89,7 @@
                     <option value="@l.Id">@l.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Location" What="location" OnAdded="QuickLocationAddedAsync" />
         </div>
 
         <div class="ams-field"><label>Date *</label><input type="date" @bind="_date" /></div>
@@ -211,5 +214,23 @@
         _loaded = false;
         _error = null;
         await OnCancel.InvokeAsync();
+    }
+
+    private async Task QuickEmployeeAddedAsync(Employee created)
+    {
+        _employees = await Employees.GetAllAsync();
+        _employeeId = created.Id;
+    }
+
+    private async Task QuickStoreAddedAsync(Store created)
+    {
+        _stores = await Stores.GetAllAsync();
+        _storeId = created.Id;
+    }
+
+    private async Task QuickLocationAddedAsync(Location created)
+    {
+        _locations = await Locations.GetAllAsync();
+        _locationId = created.Id;
     }
 }

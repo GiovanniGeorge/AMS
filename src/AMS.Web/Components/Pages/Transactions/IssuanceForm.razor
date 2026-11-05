@@ -63,6 +63,7 @@ else
                             <option value="@s.Id">@s.Name</option>
                         }
                     </select>
+                    <QuickAdd TItem="Store" What="store" OnAdded="QuickStoreAddedAsync" />
                 }
             </div>
 
@@ -81,6 +82,7 @@ else
                             <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
                         }
                     </select>
+                    <QuickAddEmployee OnAdded="QuickEmployeeAddedAsync" />
                 }
             </div>
 
@@ -93,6 +95,7 @@ else
                         <option value="@d.Id">@d.Name</option>
                     }
                 </select>
+                <QuickAdd TItem="Department" What="department" OnAdded="QuickDepartmentAddedAsync" />
             </div>
 
             <div class="ams-field">
@@ -104,6 +107,7 @@ else
                         <option value="@l.Id">@l.Name</option>
                     }
                 </select>
+                <QuickAdd TItem="Location" What="location" OnAdded="QuickLocationAddedAsync" />
             </div>
 
             <div class="ams-field">
@@ -191,5 +195,29 @@ else
         }
         catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
         finally { _saving = false; }
+    }
+
+    private async Task QuickStoreAddedAsync(Store created)
+    {
+        _stores = await Stores.GetAllAsync();
+        _storeId = created.Id;
+    }
+
+    private async Task QuickEmployeeAddedAsync(Employee created)
+    {
+        _employees = await Employees.GetAllAsync();
+        _employeeId = created.Id;
+    }
+
+    private async Task QuickDepartmentAddedAsync(Department created)
+    {
+        _departments = await Departments.GetAllAsync();
+        _departmentId = created.Id;
+    }
+
+    private async Task QuickLocationAddedAsync(Location created)
+    {
+        _locations = await Locations.GetAllAsync();
+        _locationId = created.Id;
     }
 }

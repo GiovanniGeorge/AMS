@@ -113,6 +113,7 @@
                     <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
                 }
             </select>
+            <QuickAddEmployee OnAdded="QuickEmployeeAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -124,6 +125,7 @@
                     <option value="@v.Id">@v.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Vendor" What="vendor" OnAdded="QuickVendorAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -305,5 +307,17 @@
             await LoadAsync();
         }
         catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task QuickEmployeeAddedAsync(Employee created)
+    {
+        _employees = await Employees.GetAllAsync();
+        _technicianId = created.Id;
+    }
+
+    private async Task QuickVendorAddedAsync(Vendor created)
+    {
+        _vendors = await Vendors.GetAllAsync();
+        _vendorId = created.Id;
     }
 }

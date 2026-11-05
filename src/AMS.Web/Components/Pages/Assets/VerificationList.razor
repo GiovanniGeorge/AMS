@@ -89,6 +89,7 @@
                     <option value="@l.Id">@l.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Location" What="location" OnAdded="QuickLocationAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -100,6 +101,7 @@
                     <option value="@d.Id">@d.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Department" What="department" OnAdded="QuickDepartmentAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -111,6 +113,7 @@
                     <option value="@c.Id">@c.Name</option>
                 }
             </select>
+            <QuickAddCategory OnAdded="QuickCategoryAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -304,4 +307,22 @@
 
     private static int Count(string snapshot) =>
         snapshot.Split(',', StringSplitOptions.RemoveEmptyEntries).Length;
+
+    private async Task QuickLocationAddedAsync(Location created)
+    {
+        _locations = await Locations.GetAllAsync();
+        _locationId = created.Id;
+    }
+
+    private async Task QuickDepartmentAddedAsync(Department created)
+    {
+        _departments = await Departments.GetAllAsync();
+        _departmentId = created.Id;
+    }
+
+    private async Task QuickCategoryAddedAsync(Category created)
+    {
+        _categories = await Categories.GetAllAsync();
+        _categoryId = created.Id;
+    }
 }

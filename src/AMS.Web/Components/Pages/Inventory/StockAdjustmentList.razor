@@ -71,6 +71,7 @@
                         <option value="@s.Id">@s.Name</option>
                     }
                 </select>
+                <QuickAdd TItem="Store" What="store" OnAdded="QuickStoreAddedAsync" />
             }
         </div>
 
@@ -89,6 +90,7 @@
                         <option value="@i.Id">@i.Name</option>
                     }
                 </select>
+                <QuickAddItem OnAdded="QuickItemAddedAsync" />
             }
         </div>
 
@@ -217,5 +219,17 @@
             await LoadAsync();
         }
         catch (Exception ex) { _error = ex.InnerException?.Message ?? ex.Message; }
+    }
+
+    private async Task QuickStoreAddedAsync(Store created)
+    {
+        _stores = await Stores.GetAllAsync();
+        _storeId = created.Id;
+    }
+
+    private async Task QuickItemAddedAsync(Item created)
+    {
+        _items = await Items.GetAllAsync();
+        _itemId = created.Id;
     }
 }

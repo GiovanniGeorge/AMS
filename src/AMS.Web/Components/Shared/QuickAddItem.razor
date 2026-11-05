@@ -1,0 +1,40 @@
+@* A store item is always counted in something, so the quick-add asks for the unit too. *@
+
+@inject ICrudService<Unit> Units
+
+<QuickAdd TItem="Item" What="item" OnAdded="AddedAsync"
+          Prepare="Fill" Validate="Check">
+    <Extra>
+        <select @bind="_unitId">
+            <option value="">— unit of measure —</option>
+            @foreach (var u in _units)
+            {
+                <option value="@u.Id">@u.Name</option>
+            }
+        </select>
+    </Extra>
+</QuickAdd>
+
+@code {
+    [Parameter] public EventCallback<Item> OnAdded { get; set; }
+
+    private List<Unit> _units = new();
+    private int? _unitId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _units = await Units.GetAllAsync(); }
+        catch { /* handled by the validation below: without a unit nothing is saved */ }
+    }
+
+    private string? Check() =>
+        _unitId is null ? "Choose the unit this item is counted in." : null;
+
+    private void Fill(Item item) => item.UnitOfMeasureId = _unitId ?? 0;
+
+    private async Task AddedAsync(Item item)
+    {
+        _unitId = null;
+        await OnAdded.InvokeAsync(item);
+    }
+}

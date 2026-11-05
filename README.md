@@ -78,14 +78,24 @@ show how many rows are missing a purchase date or a cost.
 
 - **Nothing is ever hard-deleted.** Every table has `IsActive`; "Delete" is always *Deactivate*.
 - **Numbers are generated, never typed.** Assets take the category prefix (`LAP000-00001`),
-  purchase orders are numbered `PO-00001`; neither changes afterwards.
+  falling back to `AST-00001` when the category has none, and purchase orders are numbered
+  `PO-00001`. Neither changes afterwards; an externally issued number goes in Legacy asset number.
 - **Amounts carry a currency from a fixed list** (EGP, USD, EUR). It used to be a free-text box,
   which produced "egp", "Egp" and "EGP " for the same currency.
-- **A missing lookup never costs you the form.** Every drop-down that needs a name only —
-  supplier, item, brand, condition, location, department — has a "+ New" box underneath that
-  creates the row and selects it without leaving the screen.
+- **A missing lookup never costs you the form.** Every drop-down in the application has a
+  "+ New" box underneath that creates the row and selects it without leaving the screen —
+  supplier, vendor, brand, condition, location, department, store, unit, and the three that
+  need more than a name: a category asks for its prefix, useful life and salvage value, an
+  employee for a staff number, an item for its unit. An invoice can even register the asset
+  it is billing.
 - **A purchase order can be raised empty** and filled in as the quotes arrive; its total is the
   sum of its lines, so until then it is zero. An invoice does not need a purchase order either.
+- **An asset and its invoice know about each other.** An invoice line bills a store item, a
+  registered asset, or free text; an asset billed on one takes the invoice's supplier, date and
+  cost for whichever of those it does not already have, and the asset page links back to it.
+  The link can be made from either end, and raising the invoice while registering an asset is a
+  tick box, never automatic — plenty of assets arrive by transfer, donation or from the old
+  register, and inventing an invoice for those would be inventing a purchase.
 - **Errors appear inside the dialog that caused them**, above the fields, so a refused save
   explains itself instead of looking like a dead button.
 - **One asset, one open request.** An asset inside an unfinished issuance, transfer or disposal
@@ -201,6 +211,8 @@ options.UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(120));
 | `AdminRoleAndAttachments` | Preventive-plan link, attachment contents, renames the `Approver` role to `Admin` |
 | `UserEmployeeLink` | `User.EmployeeId` — the person a login belongs to |
 | `OneLoginPerEmployee` | Makes that link unique among active accounts |
+| `InvoiceLines` | Invoice lines, so an invoice records what was billed |
+| `InvoiceLineAsset` | `InvoiceLine.AssetId` — the tie between an asset and its invoice |
 
 Three of these contain **hand-written corrections** (EF scaffolded a `RenameColumn` between
 unrelated columns, and an `AlterColumn` from `nvarchar` to `int` that SQL Server rejects). They

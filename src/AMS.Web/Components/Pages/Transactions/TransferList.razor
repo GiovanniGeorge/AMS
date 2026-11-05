@@ -128,6 +128,7 @@
                     <option value="@e.Id">@e.EmployeeNumber — @e.Name</option>
                 }
             </select>
+            <QuickAddEmployee OnAdded="QuickEmployeeAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -139,6 +140,7 @@
                     <option value="@d.Id">@d.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Department" What="department" OnAdded="QuickDepartmentAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -150,6 +152,7 @@
                     <option value="@l.Id">@l.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Location" What="location" OnAdded="QuickLocationAddedAsync" />
         </div>
 
         <div class="ams-field">
@@ -353,5 +356,23 @@
         var parts = new[] { custodian, department, location }.Where(p => !string.IsNullOrWhiteSpace(p));
         var text = string.Join(" · ", parts);
         return text.Length == 0 ? "Store" : text;
+    }
+
+    private async Task QuickEmployeeAddedAsync(Employee created)
+    {
+        _employees = await Employees.GetAllAsync();
+        _toCustodianId = created.Id;
+    }
+
+    private async Task QuickDepartmentAddedAsync(Department created)
+    {
+        _departments = await Departments.GetAllAsync();
+        _toDepartmentId = created.Id;
+    }
+
+    private async Task QuickLocationAddedAsync(Location created)
+    {
+        _locations = await Locations.GetAllAsync();
+        _toLocationId = created.Id;
     }
 }

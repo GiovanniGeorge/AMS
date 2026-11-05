@@ -32,6 +32,7 @@
                 <option value="@d.Id">@d.Name</option>
             }
         </select>
+        <QuickAdd TItem="Department" What="department" OnAdded="QuickDepartmentAddedAsync" />
 
         <label><input type="checkbox" @bind="_showInactive" @bind:after="SearchAsync" /> Show inactive</label>
     </div>
@@ -190,5 +191,11 @@
         if (r.IsActive) await Service.DeactivateAsync(r.Id);
         else await Service.ActivateAsync(r.Id);
         await LoadAsync();
+    }
+
+    private async Task QuickDepartmentAddedAsync(Department created)
+    {
+        _departments = await Departments.GetAllAsync();
+        _departmentId = created.Id;
     }
 }

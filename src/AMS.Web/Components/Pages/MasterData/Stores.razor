@@ -72,6 +72,7 @@
                     <option value="@l.Id">@l.Name</option>
                 }
             </select>
+            <QuickAdd TItem="Location" What="location" OnAdded="QuickLocationAddedAsync" />
         </div>
     }
 </ModalForm>
@@ -131,5 +132,11 @@
         if (r.IsActive) await Service.DeactivateAsync(r.Id);
         else await Service.ActivateAsync(r.Id);
         await LoadAsync();
+    }
+
+    private async Task QuickLocationAddedAsync(Location created)
+    {
+        _locations = await Locations.GetAllAsync();
+        _editing.LocationId = created.Id;
     }
 }

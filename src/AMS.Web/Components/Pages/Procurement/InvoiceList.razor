@@ -1,6 +1,8 @@
 ﻿@page "/invoices"
-@inject ICrudService<Invoice> Invoices
+@inject IInvoiceService Service
+@inject ICrudService<Invoice> InvoiceCrud
 @inject ICrudService<Supplier> Suppliers
+@inject ICrudService<Item> Items
 @inject IPurchaseOrderService Orders
 @inject ICrudService<User> Users
 
@@ -37,7 +39,7 @@
         <table class="ams-table">
             <thead>
                 <tr>
-                    <th>Number</th><th>Supplier</th><th>Purchase order</th><th>Date</th>
+                    <th>Number</th><th>Supplier</th><th>Purchase order</th><th>Date</th><th>Lines</th>
                     <th>Amount</th><th>Created by</th><th>Status</th><th class="actions">Actions</th>
                 </tr>
             </thead>
@@ -49,6 +51,30 @@
                         <td>@(i.Supplier?.Name ?? "—")</td>
                         <td>@(i.PurchaseOrder?.PurchaseOrderNumber ?? "—")</td>
                         <td>@i.InvoiceDate?.ToString("yyyy-MM-dd")</td>
+                        <td>
+                            @if (i.Lines.Count == 0)
+                            {
+                                <span class="ams-muted">—</span>
+                            }
+                            else
+                            {
+                                @foreach (var l in i.Lines)
+                                {
+                                    <div>
+                                        @if (l.Asset is not null)
+                                        {
+                                            <a class="ams-link" href="assets/@l.AssetId">@l.Asset.AssetNumber</a>
+                                            <text> @l.Asset.Name</text>
+                                        }
+                                        else
+                                        {
+                                            @(l.Item?.Name ?? l.Description)
+                                        }
+                                        &times; @l.Quantity.ToString("N2") @(l.UnitPrice is null ? "" : "@ " + l.UnitPrice.Value.ToString("N2"))
+                                    </div>
+                                }
+                            }
+                        </td>
                         <td>@(i.Amount?.ToString("N2") ?? "—") @i.Currency</td>
                         <td><UserName Id="i.CreatedById" Names="_userNames" /></td>
                         <td><StatusBadge Active="i.IsActive" /></td>
@@ -108,7 +134,14 @@
 
         <div class="ams-field">
             <label>Amount</label>
-            <input type="number" step="0.01" @bind="_amount" />
+            @if (_lines.Count > 0)
+            {
+                <div class="ams-readonly">@Total.ToString("N2") @_currency</div>
+            }
+            else
+            {
+                <input type="number" step="0.01" @bind="_amount" />
+            }
         </div>
 
         <div class="ams-field">
@@ -122,21 +155,93 @@
         </div>
     </div>
 
+    <h3 style="margin-top:14px;">Lines (@_lines.Count)</h3>
+
+    @if (_lines.Count > 0)
+    {
+        <table class="ams-table">
+            <thead><tr><th>Item / description</th><th>Quantity</th><th>Unit price</th><th>Line total</th><th class="actions"></th></tr></thead>
+            <tbody>
+                @foreach (var l in _lines)
+                {
+                    <tr>
+                        <td>@LineLabel(l)</td>
+                        <td>@l.Quantity.ToString("N2")</td>
+                        <td>@(l.UnitPrice?.ToString("N2") ?? "—")</td>
+                        <td>@((l.Quantity * (l.UnitPrice ?? 0m)).ToString("N2"))</td>
+                        <td class="actions"><button class="ams-btn link danger" @onclick="() => _lines.Remove(l)">Remove</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <div class="ams-grid" style="margin-top:8px;">
+        <div class="ams-field">
+            <label>Item</label>
+            <select @bind="_lineItemId">
+                <option value="">— free text —</option>
+                @foreach (var i in _items)
+                {
+                    <option value="@i.Id">@i.Name</option>
+                }
+            </select>
+            <QuickAddItem OnAdded="ItemAddedAsync" />
+        </div>
+
+        <div class="ams-field">
+            <label>Asset</label>
+            <select @bind="_lineAssetId">
+                <option value="">— not an asset —</option>
+                @foreach (var a in _assets)
+                {
+                    <option value="@a.Id">@a.AssetNumber — @a.Name</option>
+                }
+            </select>
+            <QuickAddAsset OnAdded="AssetAddedAsync" />
+        </div>
+
+        <div class="ams-field">
+            <label>Description</label>
+            <input @bind="_lineDescription" placeholder="Used when no item is chosen" />
+        </div>
+
+        <div class="ams-field">
+            <label>Quantity</label>
+            <input type="number" step="0.01" @bind="_lineQuantity" />
+        </div>
+
+        <div class="ams-field">
+            <label>Unit price</label>
+            <input type="number" step="0.01" @bind="_lineUnitPrice" />
+        </div>
+
+        <div class="ams-field">
+            <label>&nbsp;</label>
+            <button class="ams-btn ghost" @onclick="AddLine">+ Add line</button>
+        </div>
+    </div>
+
     <p class="ams-hint">
+        A line can bill a store item, a registered asset (pick it, or create it with
+        "+ New asset"), or just free text. An asset billed here takes the invoice's supplier,
+        date and amount for any of those it does not already have.
         An invoice does not need a purchase order — leave it on "— none —" for anything bought
-        without one. The same invoice number can only be used once per supplier.
+        without one. Once it has lines the amount is their sum; with no lines you type the amount
+        yourself. A line you have typed is taken on Save even without pressing "+ Add line".
+        The same invoice number can only be used once per supplier.
     </p>
 </ModalForm>
 
 @code {
     private List<Invoice>? _rows;
     private List<Supplier> _suppliers = new();
+    private List<Item> _items = new();
     private List<PurchaseOrder> _orders = new();
     private Dictionary<int, string> _userNames = new();
     private bool _showInactive;
     private int _total;
     private int _page = 1;
-
 
     private bool _open;
     private int? _editId;
@@ -146,6 +251,15 @@
     private DateTime? _date = DateTime.Today;
     private decimal? _amount;
     private string _currency = Currencies.Default;
+    private List<InvoiceLineInput> _lines = new();
+
+    private List<Asset> _assets = new();
+    private int? _lineItemId;
+    private int? _lineAssetId;
+    private string? _lineDescription;
+    private decimal _lineQuantity = 1;
+    private decimal? _lineUnitPrice;
+
 
     /// <summary>Shown inside the dialog.</summary>
     private string? _error;
@@ -153,12 +267,32 @@
     /// <summary>Shown on the page, for failures that happen with the dialog closed.</summary>
     private string? _pageError;
 
+    private decimal Total => _lines.Sum(l => l.Quantity * (l.UnitPrice ?? 0m));
+
+    private bool HasTypedLine =>
+        _lineItemId is not null || _lineAssetId is not null || !string.IsNullOrWhiteSpace(_lineDescription);
+
+    /// <summary>What a saved line is for: the asset, the item, or the free text.</summary>
+    private string LineLabel(InvoiceLineInput line)
+    {
+        if (line.AssetId is int assetId)
+        {
+            var asset = _assets.FirstOrDefault(a => a.Id == assetId);
+            return asset is null ? (line.Description ?? "Asset") : asset.AssetNumber + " — " + asset.Name;
+        }
+
+        return _items.FirstOrDefault(i => i.Id == line.ItemId)?.Name ?? line.Description ?? "";
+    }
+
+
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _suppliers = await Suppliers.GetAllAsync(true);
+            _items = await Items.GetAllAsync();
             _orders = await Orders.GetOpenAsync();
+            _assets = await Service.GetBillableAssetsAsync();
             _userNames = (await Users.GetAllAsync(true)).ToDictionary(u => u.Id, u => u.Username);
         }
         catch (Exception ex) { _pageError = ex.Message; }
@@ -170,20 +304,13 @@
     {
         try
         {
-            var result = await Invoices.GetPageAsync(_page, _showInactive, i => i.Supplier!, i => i.PurchaseOrder!);
+            var result = await Service.GetAllAsync(_showInactive, _page);
             _rows = result.Items;
             _total = result.Total;
             _pageError = null;
         }
         catch (Exception ex) { _pageError = ex.Message; }
     }
-
-    private async Task SupplierAddedAsync(Supplier supplier)
-    {
-        _suppliers = await Suppliers.GetAllAsync(true);
-        _supplierId = supplier.Id;
-    }
-
 
     private async Task GoToAsync(int page)
     {
@@ -197,6 +324,32 @@
         await LoadAsync();
     }
 
+    // ------------------------------------------------------------------
+    // Quick-add callbacks
+    // ------------------------------------------------------------------
+
+    private async Task SupplierAddedAsync(Supplier supplier)
+    {
+        _suppliers = await Suppliers.GetAllAsync(true);
+        _supplierId = supplier.Id;
+    }
+
+    private async Task ItemAddedAsync(Item item)
+    {
+        _items = await Items.GetAllAsync();
+        _lineItemId = item.Id;
+    }
+
+    private async Task AssetAddedAsync(Asset asset)
+    {
+        _assets = await Service.GetBillableAssetsAsync();
+        _lineAssetId = asset.Id;
+    }
+
+    // ------------------------------------------------------------------
+    // The dialog
+    // ------------------------------------------------------------------
+
     private void OpenNew()
     {
         _editId = null;
@@ -206,6 +359,8 @@
         _date = DateTime.Today;
         _amount = null;
         _currency = Currencies.Default;
+        _lines = new();
+        ClearLine();
         _error = null;
         _open = true;
     }
@@ -225,58 +380,86 @@
         _date = invoice.InvoiceDate;
         _amount = invoice.Amount;
         _currency = Currencies.Normalise(invoice.Currency);
+        _lines = invoice.Lines
+            .Select(l => new InvoiceLineInput(l.ItemId, l.Description, l.Quantity, l.UnitPrice, l.AssetId))
+            .ToList();
+
+        // The assets already on this invoice must stay pickable while it is being edited.
+        foreach (var onThisInvoice in invoice.Lines.Where(l => l.Asset is not null && _assets.All(a => a.Id != l.AssetId)))
+        {
+            _assets = _assets.Append(onThisInvoice.Asset!).ToList();
+        }
+        ClearLine();
         _error = null;
         _open = true;
     }
 
     private void Close() => _open = false;
 
+    private void ClearLine()
+    {
+        _lineItemId = null;
+        _lineAssetId = null;
+        _lineDescription = null;
+        _lineQuantity = 1;
+        _lineUnitPrice = null;
+    }
+
+    /// <summary>Moves what is in the line boxes into the list. False (with an error) if it cannot.</summary>
+    private bool TakeTypedLine()
+    {
+        if (_lineItemId is null && _lineAssetId is null && string.IsNullOrWhiteSpace(_lineDescription))
+        {
+            _error = "Choose an item or an asset, or type a description.";
+            return false;
+        }
+
+        if (_lineItemId is not null && _lineAssetId is not null)
+        {
+            _error = "A line bills either a store item or an asset, not both.";
+            return false;
+        }
+
+        if (_lineAssetId is int already && _lines.Any(l => l.AssetId == already))
+        {
+            _error = "That asset is already on this invoice.";
+            return false;
+        }
+
+        if (_lineQuantity <= 0)
+        {
+            _error = "The quantity must be greater than zero.";
+            return false;
+        }
+
+        _lines.Add(new InvoiceLineInput(_lineItemId, _lineDescription, _lineQuantity, _lineUnitPrice, _lineAssetId));
+        ClearLine();
+        return true;
+    }
+
+    private void AddLine()
+    {
+        _error = null;
+        TakeTypedLine();
+    }
+
     private async Task SaveAsync()
     {
         _error = null;
-        if (string.IsNullOrWhiteSpace(_number)) { _error = "The invoice number is required."; return; }
 
-        // The database enforces one invoice number per supplier; say it in plain words
-        // instead of letting the SQL Server message through.
-        var clash = (await Invoices.GetAllAsync(true)).Any(i =>
-            i.Id != _editId
-            && i.SupplierId == _supplierId
-            && string.Equals(i.InvoiceNumber, _number!.Trim(), StringComparison.OrdinalIgnoreCase));
-
-        if (clash && _supplierId is not null)
+        if (HasTypedLine && !TakeTypedLine())
         {
-            _error = "This supplier already has an invoice with that number.";
             return;
         }
 
         try
         {
-            if (_editId is int id)
-            {
-                var existing = await Invoices.GetByIdAsync(id);
-                if (existing is null) { _error = "Invoice not found."; return; }
+            var input = new InvoiceInput(
+                _number ?? string.Empty, _supplierId, _purchaseOrderId,
+                _date, _amount, _currency, _lines);
 
-                existing.InvoiceNumber = _number!.Trim();
-                existing.SupplierId = _supplierId;
-                existing.PurchaseOrderId = _purchaseOrderId;
-                existing.InvoiceDate = _date;
-                existing.Amount = _amount;
-                existing.Currency = _currency;
-
-                await Invoices.UpdateAsync(existing);
-            }
-            else
-            {
-                await Invoices.AddAsync(new Invoice
-                {
-                    InvoiceNumber = _number!.Trim(),
-                    SupplierId = _supplierId,
-                    PurchaseOrderId = _purchaseOrderId,
-                    InvoiceDate = _date,
-                    Amount = _amount,
-                    Currency = _currency
-                });
-            }
+            if (_editId is int id) await Service.UpdateAsync(id, input);
+            else await Service.CreateAsync(input);
 
             _open = false;
             await LoadAsync();
@@ -286,8 +469,13 @@
 
     private async Task ToggleAsync(Invoice invoice)
     {
-        if (invoice.IsActive) await Invoices.DeactivateAsync(invoice.Id);
-        else await Invoices.ActivateAsync(invoice.Id);
-        await LoadAsync();
+        _pageError = null;
+        try
+        {
+            if (invoice.IsActive) await InvoiceCrud.DeactivateAsync(invoice.Id);
+            else await InvoiceCrud.ActivateAsync(invoice.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex) { _pageError = ex.InnerException?.Message ?? ex.Message; }
     }
 }
