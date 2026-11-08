@@ -38,6 +38,7 @@ In store ──issue──► Assigned ──return──► In store
 | **Maintenance** | Preventive plans · Work orders · Contracts (AMC) · Incidents |
 | **Procurement** | Purchase orders · Invoices · Suppliers |
 | **Reports** | Purchases & usage — what entered the books in a period and whether it was ever put to use |
+| **Bulk entry** | Import assets from a spreadsheet, with a preview before anything is written |
 | **Master data** | Categories · Brands · Units · Locations · Departments · Employees (searchable, with a custody page) · Asset statuses · Suppliers · Vendors · Stores · Items · Users · Roles |
 | **Administration** | Audit log · Role management |
 
@@ -73,6 +74,28 @@ what was received against what left the stores in the same period.
 Nothing is silently dropped. An asset entered without a purchase date is still reported, dated
 by its registration instead and marked `Registered` in the **Basis** column, and two counters
 show how many rows are missing a purchase date or a cost.
+
+### Importing a spreadsheet
+
+**Assets → Import Assets** registers many assets from one `.xlsx`. It reads the file and shows
+what is in it *before* writing anything: how many rows are ready, how many are not, and for each
+of those exactly what is wrong — `Category is missing`, `Serial number "SN-123" is already
+registered`, `No employee has the number "E-99"`. Only the ready rows are registered; the rest
+come back as a spreadsheet with a **What is missing** column, to fix and upload again.
+
+Asset numbers are not in the file — they are generated. Category, brand, supplier, location,
+department and condition are matched by name, and anything the sheet names that does not exist
+yet is created and listed in the result. The custodian is matched on the employee number, and
+that employee must already exist.
+
+### Trying it with data
+
+A fresh installation has nothing in it, which makes it hard to look at. **Sample Data**
+(administrator only, and only while the register is still empty) fills it with an invented
+register: categories, locations, people, eight assets — one in someone's custody, one waiting
+for approval — a purchase order, an invoice tied to two of the assets, a preventive plan and a
+maintenance contract. It contains no login accounts: whoever installs AMS still creates their
+own on the setup page.
 
 ### Other behaviour worth knowing
 

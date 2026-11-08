@@ -48,6 +48,8 @@ public static class DependencyInjection
         services.AddScoped<IStockService, StockService>();
         services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
         services.AddScoped<IInvoiceService, InvoiceService>();
+        services.AddScoped<IAssetImportService, AssetImportService>();
+        services.AddScoped<ISampleDataService, SampleDataService>();
         services.AddScoped<IVerificationService, VerificationService>();
         services.AddScoped<IAuditLogService, AuditLogService>();
         services.AddScoped<IMaintenancePlanService, MaintenancePlanService>();

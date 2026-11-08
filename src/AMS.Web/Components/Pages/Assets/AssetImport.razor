@@ -1,0 +1,234 @@
+@page "/assets/import"
+@attribute [Authorize(Roles = AppRoles.Admin)]
+@inject IAssetImportService Import
+@inject NavigationManager Nav
+
+<PageTitle>Import Assets</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Import Assets</h1>
+        <div class="sub">Register many assets from one spreadsheet</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+        <a class="ams-btn ghost" href="@_templateLink" download="asset-import-template.xlsx">Download template</a>
+        <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo("assets")'>Back to register</button>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+@* ------------------------------------------------------------ step 1: the file *@
+<div class="ams-card">
+    <h2 class="ams-section-title">1 · Choose the file</h2>
+
+    <InputFile OnChange="OnFileAsync" accept=".xlsx" disabled="@_busy" />
+
+    <p class="ams-hint">
+        Start from the template: its first sheet has the columns in the right order and the
+        second explains them. <strong>Name</strong>, <strong>Category</strong> and
+        <strong>Condition</strong> are required on every row; everything else may be left empty.
+        Asset numbers are not in the file — the system generates them.
+        A category, brand, supplier, location, department or condition the sheet names but the
+        system does not have yet is created for you.
+    </p>
+</div>
+
+@* ------------------------------------------------------------ step 2: what is in it *@
+@if (_preview is not null)
+{
+    <div class="ams-card" style="margin-top:16px;">
+        <h2 class="ams-section-title">2 · What the file contains</h2>
+
+        <div class="ams-tiles" style="margin-bottom:14px;">
+            <div class="ams-tile"><div class="label">Rows read</div><div class="value">@_preview.Rows.Count</div></div>
+            <div class="ams-tile"><div class="label">Ready to register</div><div class="value">@_preview.Valid</div></div>
+            <div class="ams-tile"><div class="label">Needs completing</div><div class="value">@_preview.Rejected</div></div>
+        </div>
+
+        <table class="ams-table">
+            <thead>
+                <tr><th>Row</th><th>Name</th><th>Category</th><th>Condition</th><th>Serial</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _preview.Rows)
+                {
+                    <tr class="@(row.IsValid ? "" : "is-inactive")">
+                        <td>@row.RowNumber</td>
+                        <td>@(row.Name ?? "—")</td>
+                        <td>@(row.Category ?? "—")</td>
+                        <td>@(row.Condition ?? "—")</td>
+                        <td>@(row.SerialNumber ?? "—")</td>
+                        <td>
+                            @if (row.IsValid)
+                            {
+                                <span class="ams-badge">Ready</span>
+                            }
+                            else
+                            {
+                                <span class="ams-badge off">@row.ProblemText</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="ams-toolbar" style="margin-top:12px;">
+            <button class="ams-btn" @onclick="RunAsync" disabled="@(_busy || _preview.Valid == 0)">
+                Register @_preview.Valid asset(s)
+            </button>
+            <button class="ams-btn ghost" @onclick="Reset" disabled="@_busy">Choose another file</button>
+        </div>
+
+        <p class="ams-hint">
+            Nothing has been written yet. Only the rows marked <strong>Ready</strong> are registered;
+            the rest come back as a file you can fix and upload again.
+        </p>
+    </div>
+}
+
+@* ------------------------------------------------------------ step 3: what happened *@
+@if (_result is not null)
+{
+    <div class="ams-card" style="margin-top:16px;">
+        <h2 class="ams-section-title">3 · Result</h2>
+
+        <p><strong>@_result.Registered</strong> asset(s) registered.</p>
+
+        @if (_result.CreatedLookups.Count > 0)
+        {
+            <p class="ams-hint">
+                Created along the way, because the sheet named them and the system did not have them:
+                @string.Join(" · ", _result.CreatedLookups)
+            </p>
+        }
+
+        @if (_result.Rejected.Count > 0)
+        {
+            <p>
+                <strong>@_result.Rejected.Count</strong> row(s) were not registered because data is missing.
+                @if (_rejectedLink is not null)
+                {
+                    <a class="ams-link" href="@_rejectedLink" download="assets-to-complete.xlsx">
+                        Download them, complete the data, and upload the file again
+                    </a>
+                }
+            </p>
+
+            <table class="ams-table">
+                <thead><tr><th>Row</th><th>Name</th><th>What is missing</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _result.Rejected)
+                    {
+                        <tr><td>@row.RowNumber</td><td>@(row.Name ?? "—")</td><td>@row.ProblemText</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <div class="ams-toolbar" style="margin-top:12px;">
+            <button class="ams-btn" @onclick='() => Nav.NavigateTo("assets")'>Open the register</button>
+            <button class="ams-btn ghost" @onclick="Reset">Import another file</button>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>5 MB, the same ceiling as an attachment.</summary>
+    private const long MaxBytes = 5 * 1024 * 1024;
+
+    private ImportPreview? _preview;
+    private ImportResult? _result;
+    private string? _rejectedLink;
+    private string? _error;
+    private bool _busy;
+
+    private string _templateLink = string.Empty;
+
+    protected override void OnInitialized() =>
+        _templateLink = Link(Import.BuildTemplate());
+
+    private async Task OnFileAsync(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        _preview = null;
+        _result = null;
+        _rejectedLink = null;
+        _busy = true;
+
+        try
+        {
+            var file = e.File;
+
+            if (file.Size > MaxBytes)
+            {
+                _error = "The file is larger than 5 MB.";
+                return;
+            }
+
+            // Copied into memory first: ClosedXML needs a stream it can seek.
+            using var memory = new MemoryStream();
+            await file.OpenReadStream(MaxBytes).CopyToAsync(memory);
+            memory.Position = 0;
+
+            _preview = await Import.ReadAsync(memory, file.Name);
+
+            if (_preview.FileProblem is not null)
+            {
+                _error = _preview.FileProblem;
+                _preview = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.InnerException?.Message ?? ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        if (_preview is null) return;
+
+        _error = null;
+        _busy = true;
+
+        try
+        {
+            _result = await Import.ImportAsync(_preview.Rows);
+            _preview = null;
+
+            _rejectedLink = _result.Rejected.Count == 0
+                ? null
+                : Link(Import.BuildRejectedWorkbook(_result.Rejected));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.InnerException?.Message ?? ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Reset()
+    {
+        _preview = null;
+        _result = null;
+        _rejectedLink = null;
+        _error = null;
+    }
+
+    /// <summary>A workbook as a data: link - the same no-endpoint approach the CSV exports use.</summary>
+    private static string Link(byte[] workbook) =>
+        "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,"
+        + Convert.ToBase64String(workbook);
+}

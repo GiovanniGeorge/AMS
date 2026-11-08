@@ -20,6 +20,9 @@
             <NavLink class="ams-nav-link ams-nav-top" href="audit-log">
                 <span class="ams-ico">&#9636;</span> Audit Log
             </NavLink>
+            <NavLink class="ams-nav-link ams-nav-top" href="admin/sample-data">
+                <span class="ams-ico">&#9634;</span> Sample Data
+            </NavLink>
         </Authorized>
     </AuthorizeView>
 
@@ -50,6 +53,11 @@
     <details class="ams-group" open>
         <summary>Assets</summary>
         <NavLink class="ams-nav-link" href="assets">Assets Register</NavLink>
+        <AuthorizeView Roles="@AppRoles.Admin" Context="importAuth">
+            <Authorized>
+                <NavLink class="ams-nav-link" href="assets/import">Import Assets</NavLink>
+            </Authorized>
+        </AuthorizeView>
         <NavLink class="ams-nav-link" href="issuance">Asset Issuance</NavLink>
         <NavLink class="ams-nav-link" href="transfers">Transfer</NavLink>
         <NavLink class="ams-nav-link" href="disposals">Disposal Request</NavLink>

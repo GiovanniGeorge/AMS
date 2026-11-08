@@ -1,0 +1,94 @@
+@page "/admin/sample-data"
+@attribute [Authorize(Roles = AppRoles.Admin)]
+@inject ISampleDataService Sample
+@inject NavigationManager Nav
+
+<PageTitle>Sample Data</PageTitle>
+
+<div class="ams-page-head">
+    <div>
+        <h1>Sample Data</h1>
+        <div class="sub">A made-up register, for trying the system out</div>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="ams-alert">@_error</div>
+}
+
+<div class="ams-card">
+    @if (_done is not null)
+    {
+        <h2 class="ams-section-title">Loaded</h2>
+        <p>@_done</p>
+        <div class="ams-toolbar">
+            <button class="ams-btn" @onclick='() => Nav.NavigateTo("assets")'>Open the register</button>
+            <button class="ams-btn ghost" @onclick='() => Nav.NavigateTo("")'>Dashboard</button>
+        </div>
+    }
+    else if (_canLoad == false)
+    {
+        <h2 class="ams-section-title">Not available</h2>
+        <p>
+            The register already has assets, so the sample data cannot be loaded: it would sit
+            on top of real records and there would be no way to tell them apart afterwards.
+        </p>
+        <p class="ams-hint">
+            It is meant for a fresh installation — a clone of the repository, a new database,
+            the first account created, and nothing entered yet.
+        </p>
+    }
+    else
+    {
+        <h2 class="ams-section-title">What this adds</h2>
+        <p>
+            Categories, conditions, locations, departments, a store, suppliers, a service vendor,
+            store items, three employees, eight assets — one already in someone's custody and one
+            waiting for approval — a purchase order, an invoice tied to two of the assets,
+            a preventive maintenance plan and a maintenance contract.
+        </p>
+        <p class="ams-hint">
+            All of it is invented. It contains no login accounts: the account you are signed in
+            with stays the only one until you add more in Users.
+        </p>
+
+        <div class="ams-toolbar">
+            <button class="ams-btn" @onclick="LoadAsync" disabled="@_busy">
+                @(_busy ? "Loading…" : "Load sample data")
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private bool? _canLoad;
+    private string? _done;
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _canLoad = await Sample.CanLoadAsync(); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        _busy = true;
+
+        try
+        {
+            _done = await Sample.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.InnerException?.Message ?? ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
