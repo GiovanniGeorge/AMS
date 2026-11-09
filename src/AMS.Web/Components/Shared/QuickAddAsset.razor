@@ -1,11 +1,11 @@
 @* Registers an asset from the invoice that is billing it.
 
    Not built on QuickAdd: an asset is not a lookup row. Its number comes from the
-   category prefix through IAssetService, and it needs a condition, so it goes through
+   category prefix through AssetService, and it needs a condition, so it goes through
    the same RegisterAsync every asset goes through. Purchase cost, date and supplier
    are left empty here on purpose - the invoice fills them in when it is saved. *@
 
-@inject IAssetService Assets
+@inject AssetService Assets
 @inject ICrudService<Category> Categories
 @inject ICrudService<AssetStatus> Statuses
 

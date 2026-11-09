@@ -34,7 +34,7 @@ public static class DependencyInjection
 
         services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddScoped<IAccountService, AccountService>();
-        services.AddScoped<IAssetService, AssetService>();
+        services.AddScoped<AssetService>();
         services.AddScoped<IDirectoryService, DirectoryService>();
         services.AddScoped<IReportService, ReportService>();
         services.AddScoped<IAssetIssuanceService, AssetIssuanceService>();

@@ -18,9 +18,9 @@ public class AssetImportService : IAssetImportService
     };
 
     private readonly ApplicationDbContext _db;
-    private readonly IAssetService _assets;
+    private readonly AssetService _assets;
 
-    public AssetImportService(ApplicationDbContext db, IAssetService assets)
+    public AssetImportService(ApplicationDbContext db, AssetService assets)
     {
         _db = db;
         _assets = assets;

@@ -7,7 +7,12 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class AssetService : IAssetService
+/// <summary>
+/// The asset is not simple CRUD: it has automatic numbering, a lifecycle stage,
+/// fields that only transactions may change, and a history built from many tables.
+/// Deactivate / Activate still use ICrudService&lt;Asset&gt;.
+/// </summary>
+public class AssetService
 {
     /// <summary>Used when the asset's category has no numbering prefix of its own.</summary>
     private const string DefaultPrefix = "AST";
@@ -83,6 +88,7 @@ public class AssetService : IAssetService
         return new AssetPage(await query.ToListAsync(), total);
     }
 
+    /// <summary>One asset with all its lookups (category, status, location, custodian, ...).</summary>
     public async Task<Asset?> GetDetailsAsync(int id)
     {
         return await _db.Assets
@@ -98,6 +104,7 @@ public class AssetService : IAssetService
             .FirstOrDefaultAsync(a => a.Id == id);
     }
 
+    /// <summary>Active assets whose ParentAssetId is <paramref name="parentId"/>.</summary>
     public async Task<List<Asset>> GetComponentsAsync(int parentId)
     {
         return await _db.Assets
@@ -108,6 +115,7 @@ public class AssetService : IAssetService
             .ToListAsync();
     }
 
+    /// <summary>Registration plus every active transaction that touched the asset, oldest first.</summary>
     public async Task<List<AssetHistoryEntry>> GetHistoryAsync(int assetId)
     {
         var history = new List<AssetHistoryEntry>();
@@ -284,6 +292,7 @@ public class AssetService : IAssetService
     // Numbering
     // ------------------------------------------------------------------
 
+    /// <summary>The number the next asset of this category would get.</summary>
     public async Task<string?> PreviewNextNumberAsync(int categoryId) =>
         await NextNumberAsync(await GetPrefixAsync(categoryId));
 
@@ -336,6 +345,10 @@ public class AssetService : IAssetService
     // Writing
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// Registers a new asset: generates the number from the category prefix
+    /// and sets the stage (Assigned when a custodian is given, otherwise InStore). Returns the new Id.
+    /// </summary>
     public async Task<int> RegisterAsync(Asset asset)
     {
         asset.AssetNumber = await NextNumberAsync(await GetPrefixAsync(asset.CategoryId));
@@ -354,6 +367,10 @@ public class AssetService : IAssetService
         }
     }
 
+    /// <summary>
+    /// Saves the descriptive fields only. AssetNumber, LifecycleStage, Location,
+    /// Department and Custodian are never changed here - only by transactions.
+    /// </summary>
     public async Task UpdateDetailsAsync(Asset asset)
     {
         if (asset.ParentAssetId == asset.Id)
