@@ -8,7 +8,7 @@ namespace AMS.Infrastructure.Services;
 /// Stored format: "iterations.salt.hash" (salt and hash in Base64). The iteration count is
 /// stored with each hash so it can be raised later without breaking existing passwords.
 /// </summary>
-public class Pbkdf2PasswordHasher : IPasswordHasher
+public class Pbkdf2PasswordHasher
 {
     private const int SaltSize = 16;
     private const int HashSize = 32;
@@ -22,6 +22,7 @@ public class Pbkdf2PasswordHasher : IPasswordHasher
         return $"{Iterations}.{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
     }
 
+    /// <summary>True when <paramref name="password"/> matches the stored <paramref name="passwordHash"/>.</summary>
     public bool Verify(string passwordHash, string password)
     {
         var parts = passwordHash.Split('.');

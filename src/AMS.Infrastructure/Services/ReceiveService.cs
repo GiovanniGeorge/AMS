@@ -8,7 +8,12 @@ using AMS.Application.Common;
 
 namespace AMS.Infrastructure.Services;
 
-public class ReceiveService : IReceiveService
+/// <summary>
+/// Goods arriving into a store. There is no approval: it is applied at once.
+/// An item line raises the store's stock balance; an asset line puts the asset In store
+/// at that store's location.
+/// </summary>
+public class ReceiveService
 {
     private readonly ApplicationDbContext _db;
 
@@ -40,6 +45,7 @@ public class ReceiveService : IReceiveService
         return new Paged<Receive>(items, total);
     }
 
+    /// <summary>Assets a delivery can contain: active and not disposed of.</summary>
     public async Task<List<Asset>> GetReceivableAssetsAsync()
     {
         return await _db.Assets

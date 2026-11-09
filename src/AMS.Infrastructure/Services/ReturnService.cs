@@ -9,7 +9,12 @@ using AMS.Application.Common;
 
 namespace AMS.Infrastructure.Services;
 
-public class ReturnService : IReturnService
+/// <summary>
+/// An asset coming back from an employee into a store. There is no approval:
+/// the asset becomes In store, its custodian is cleared and the open custody is closed
+/// with the return date, all at once.
+/// </summary>
+public class ReturnService
 {
     private readonly ApplicationDbContext _db;
 
@@ -37,6 +42,7 @@ public class ReturnService : IReturnService
         return new Paged<Return>(items, total);
     }
 
+    /// <summary>Assets that can be returned: active and Assigned.</summary>
     public async Task<List<Asset>> GetReturnableAssetsAsync()
     {
         return await _db.Assets

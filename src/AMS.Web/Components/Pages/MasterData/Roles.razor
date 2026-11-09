@@ -1,7 +1,7 @@
 ﻿@page "/master/roles"
 @attribute [Authorize(Roles = AppRoles.Admin)]
-@inject ICrudService<Role> Service
-@inject ICrudService<User> UserService
+@inject CrudService<Role> Service
+@inject CrudService<User> UserService
 
 <PageTitle>Roles</PageTitle>
 

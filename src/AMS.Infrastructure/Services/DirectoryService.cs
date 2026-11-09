@@ -7,7 +7,11 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class DirectoryService : IDirectoryService
+/// <summary>
+/// Searching the two people tables, plus the question the Employees screen exists
+/// to answer: what is this person holding right now?
+/// </summary>
+public class DirectoryService
 {
     private readonly ApplicationDbContext _db;
 
@@ -53,6 +57,7 @@ public class DirectoryService : IDirectoryService
         return new Paged<Employee>(items, total);
     }
 
+    /// <summary>One employee with the department loaded.</summary>
     public async Task<Employee?> GetEmployeeAsync(int id)
     {
         return await _db.Employees
@@ -61,6 +66,10 @@ public class DirectoryService : IDirectoryService
             .FirstOrDefaultAsync(e => e.Id == id);
     }
 
+    /// <summary>
+    /// The assets the employee holds right now - read from Asset.CustodianId,
+    /// which is the single source of truth for current custody.
+    /// </summary>
     public async Task<List<Asset>> GetEmployeeAssetsAsync(int employeeId)
     {
         return await _db.Assets
@@ -74,6 +83,7 @@ public class DirectoryService : IDirectoryService
             .ToListAsync();
     }
 
+    /// <summary>Every approved custody this employee has ever had, newest first.</summary>
     public async Task<List<CustodyLine>> GetCustodyHistoryAsync(int employeeId)
     {
         // No Include here on purpose: the Select below decides what is read,
@@ -99,6 +109,7 @@ public class DirectoryService : IDirectoryService
             .ToListAsync();
     }
 
+    /// <summary>How many assets each of these employees holds right now, by employee id.</summary>
     public async Task<Dictionary<int, int>> CountAssetsAsync(IEnumerable<int> employeeIds)
     {
         var ids = employeeIds.Distinct().ToList();
@@ -122,6 +133,7 @@ public class DirectoryService : IDirectoryService
     // Users
     // ------------------------------------------------------------------
 
+    /// <summary>Login accounts, searched by username, with the linked employee loaded.</summary>
     public async Task<Paged<User>> SearchUsersAsync(string? search, bool includeInactive, int page)
     {
         IQueryable<User> query = _db.Users
@@ -151,6 +163,11 @@ public class DirectoryService : IDirectoryService
         return new Paged<User>(items, total);
     }
 
+    /// <summary>
+    /// The username of the active login already linked to this employee, or null when the
+    /// person has none. <paramref name="exceptUserId"/> is the account being edited, so it
+    /// is not reported as a clash with itself.
+    /// </summary>
     public async Task<string?> LoginForEmployeeAsync(int employeeId, int exceptUserId)
     {
         return await _db.Users
@@ -160,6 +177,7 @@ public class DirectoryService : IDirectoryService
             .FirstOrDefaultAsync();
     }
 
+    /// <summary>One login account with its linked employee.</summary>
     public async Task<User?> GetUserAsync(int id)
     {
         return await _db.Users

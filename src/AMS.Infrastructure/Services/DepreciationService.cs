@@ -7,7 +7,13 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class DepreciationService : IDepreciationService
+/// <summary>
+/// Straight-line depreciation posted as history, one entry per asset per period date.
+/// Annual charge = (purchase cost - the category's salvage value) / the category's useful life in years.
+/// A monthly period charges a twelfth of that. Nothing is ever charged below the salvage value.
+/// Only the administrator can post.
+/// </summary>
+public class DepreciationService
 {
     private readonly ApplicationDbContext _db;
     private readonly ICurrentUserService _currentUser;
@@ -18,6 +24,7 @@ public class DepreciationService : IDepreciationService
         _currentUser = currentUser;
     }
 
+    /// <summary>The entries already posted, newest first.</summary>
     public async Task<Paged<DepreciationEntry>> GetAllAsync(int page = 1)
     {
         var query = _db.DepreciationEntries
@@ -35,11 +42,16 @@ public class DepreciationService : IDepreciationService
         return new Paged<DepreciationEntry>(items, total);
     }
 
+    /// <summary>
+    /// What would be written for <paramref name="periodEnd"/>, including the assets that
+    /// would be skipped and why. Nothing is saved.
+    /// </summary>
     public async Task<List<DepreciationPreviewLine>> PreviewAsync(string period, DateTime periodEnd)
     {
         return await BuildAsync(period, periodEnd);
     }
 
+    /// <summary>Administrator only. Writes the entries the preview showed. Returns how many were written.</summary>
     public async Task<int> PostAsync(string period, DateTime periodEnd)
     {
         if (!await _currentUser.IsInRoleAsync(AppRoles.Admin))

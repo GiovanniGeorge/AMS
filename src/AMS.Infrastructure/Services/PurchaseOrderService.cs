@@ -6,7 +6,11 @@ using AMS.Application.Common;
 
 namespace AMS.Infrastructure.Services;
 
-public class PurchaseOrderService : IPurchaseOrderService
+/// <summary>
+/// Purchase orders and their lines. No approval is involved.
+/// TotalCost is always the sum of the lines (quantity x unit price), never typed by hand.
+/// </summary>
+public class PurchaseOrderService
 {
     /// <summary>Every purchase order number looks like PO-00001.</summary>
     private const string NumberPrefix = "PO-";
@@ -45,6 +49,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         return new Paged<PurchaseOrder>(items, total);
     }
 
+    /// <summary>Open orders, for the Receive screen to pick from.</summary>
     public async Task<List<PurchaseOrder>> GetOpenAsync()
     {
         return await Orders()
@@ -62,6 +67,7 @@ public class PurchaseOrderService : IPurchaseOrderService
     // Numbering
     // ------------------------------------------------------------------
 
+    /// <summary>The number the next order would get, so the screen can show it before saving.</summary>
     public Task<string> PreviewNextNumberAsync() => NextNumberAsync();
 
     /// <summary>
@@ -93,6 +99,7 @@ public class PurchaseOrderService : IPurchaseOrderService
     // Writing
     // ------------------------------------------------------------------
 
+    /// <summary>Creates the order with a generated number. Returns the new Id.</summary>
     public async Task<int> CreateAsync(PurchaseOrderInput input)
     {
         Validate(input);
@@ -125,6 +132,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         }
     }
 
+    /// <summary>Replaces the header and the lines of an open order. The number never changes.</summary>
     public async Task UpdateAsync(int id, PurchaseOrderInput input)
     {
         Validate(input);

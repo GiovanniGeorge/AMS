@@ -7,7 +7,12 @@ using AMS.Application.Common;
 
 namespace AMS.Infrastructure.Services;
 
-public class StockService : IStockService
+/// <summary>
+/// Consumable items in stores. Items never go out through an Issue (that is for assets only):
+/// they leave through a stock adjustment with a reason.
+/// Balances are kept in StockBalance, one row per (store, item).
+/// </summary>
+public class StockService
 {
     private readonly ApplicationDbContext _db;
 
@@ -46,6 +51,7 @@ public class StockService : IStockService
         return new Paged<StockAdjustment>(items, total);
     }
 
+    /// <summary>The current quantity of one item in one store (0 when there is no row yet).</summary>
     public async Task<decimal> GetQuantityAsync(int storeId, int itemId)
     {
         return await _db.StockBalances
@@ -55,6 +61,7 @@ public class StockService : IStockService
             .FirstOrDefaultAsync();
     }
 
+    /// <summary>Applies the adjustment at once and moves the balance. Stock cannot go below zero.</summary>
     public async Task<int> AdjustAsync(StockAdjustmentInput input)
     {
         if (input.Quantity <= 0)

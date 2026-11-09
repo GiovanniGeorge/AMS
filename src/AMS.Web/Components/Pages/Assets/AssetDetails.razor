@@ -1,8 +1,8 @@
 ﻿@page "/assets/{Id:int}"
 @inject AssetService Assets
-@inject ICrudService<User> Users
-@inject IAttachmentService Attachments
-@inject IInvoiceService Invoices
+@inject CrudService<User> Users
+@inject AttachmentService Attachments
+@inject InvoiceService Invoices
 @inject NavigationManager Nav
 
 <PageTitle>@(_asset?.AssetNumber ?? "Asset")</PageTitle>
@@ -309,7 +309,7 @@ else
 
         if (file is null) return;
 
-        if (file.Size > IAttachmentService.MaxBytes)
+        if (file.Size > AttachmentService.MaxBytes)
         {
             _fileError = "The file is larger than 5 MB.";
             return;
@@ -317,7 +317,7 @@ else
 
         try
         {
-            using var stream = file.OpenReadStream(IAttachmentService.MaxBytes);
+            using var stream = file.OpenReadStream(AttachmentService.MaxBytes);
             using var memory = new MemoryStream();
             await stream.CopyToAsync(memory);
 

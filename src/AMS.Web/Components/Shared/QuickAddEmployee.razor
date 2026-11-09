@@ -1,7 +1,7 @@
 @* An employee is more than a name - it needs a staff number, and usually a department.
    This wraps QuickAdd so every screen that picks a custodian can create one in one line. *@
 
-@inject ICrudService<Department> Departments
+@inject CrudService<Department> Departments
 
 <QuickAdd TItem="Employee" What="employee" OnAdded="AddedAsync"
           Prepare="Fill" Validate="Check">

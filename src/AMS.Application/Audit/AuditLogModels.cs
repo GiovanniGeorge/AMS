@@ -15,15 +15,3 @@ public record AuditFilter(
 
 /// <summary>One page of audit entries plus the total number of matching rows.</summary>
 public record AuditPage(List<AuditLog> Items, int Total);
-
-/// <summary>
-/// Reading the audit trail. Writing happens inside ApplicationDbContext.SaveChangesAsync
-/// (inserts, updates and deactivations) and in AccountService (login, logout, failed login).
-/// </summary>
-public interface IAuditLogService
-{
-    Task<AuditPage> SearchAsync(AuditFilter filter);
-
-    /// <summary>The entity names that actually appear in the log, for the filter dropdown.</summary>
-    Task<List<string>> GetEntityNamesAsync();
-}

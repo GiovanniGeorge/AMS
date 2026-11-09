@@ -6,17 +6,22 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class AccountService : IAccountService
+/// <summary>Login, logout and first-user setup.</summary>
+public class AccountService
 {
     private readonly ApplicationDbContext _db;
-    private readonly IPasswordHasher _hasher;
+    private readonly Pbkdf2PasswordHasher _hasher;
 
-    public AccountService(ApplicationDbContext db, IPasswordHasher hasher)
+    public AccountService(ApplicationDbContext db, Pbkdf2PasswordHasher hasher)
     {
         _db = db;
         _hasher = hasher;
     }
 
+    /// <summary>
+    /// Checks the username and password of an active user.
+    /// Writes a Login or FailedLogin row to AuditLog. Returns null when the login fails.
+    /// </summary>
     public async Task<LoginResult?> ValidateCredentialsAsync(string username, string password)
     {
         var user = await _db.Users
@@ -54,6 +59,7 @@ public class AccountService : IAccountService
         return new LoginResult(user.Id, user.Username, roles);
     }
 
+    /// <summary>Writes a Logout row to AuditLog.</summary>
     public async Task LogLogoutAsync(int userId)
     {
         _db.AuditLogs.Add(new AuditLog
@@ -68,11 +74,16 @@ public class AccountService : IAccountService
         await _db.SaveChangesAsync();
     }
 
+    /// <summary>True as soon as at least one user exists (active or not).</summary>
     public Task<bool> AnyUsersExistAsync()
     {
         return _db.Users.AnyAsync();
     }
 
+    /// <summary>
+    /// Creates the very first user. Returns false, and creates nothing,
+    /// if any user already exists.
+    /// </summary>
     public async Task<bool> CreateFirstUserAsync(string username, string password)
     {
         // Checked again here, not only on the page, so the setup can never run twice.

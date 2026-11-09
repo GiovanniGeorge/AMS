@@ -6,7 +6,12 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class VerificationService : IVerificationService
+/// <summary>
+/// A physical count of the assets that match a scope (location / department / category).
+/// The approved entity list has no line table, so the campaign keeps the expected assets
+/// as a snapshot of asset numbers, and the progress and findings as plain text.
+/// </summary>
+public class VerificationService
 {
     private readonly ApplicationDbContext _db;
 
@@ -88,11 +93,16 @@ public class VerificationService : IVerificationService
         }
     }
 
+    /// <summary>How many active assets match the scope right now.</summary>
     public async Task<int> CountScopeAsync(int? locationId, int? departmentId, int? categoryId)
     {
         return await Scope(locationId, departmentId, categoryId).CountAsync();
     }
 
+    /// <summary>
+    /// Writes the asset numbers that match the scope into ExpectedSnapshot and starts the campaign.
+    /// Re-running it replaces the snapshot.
+    /// </summary>
     public async Task TakeSnapshotAsync(int id)
     {
         try
@@ -126,6 +136,7 @@ public class VerificationService : IVerificationService
         }
     }
 
+    /// <summary>Saves what was found: progress as a percentage and the findings as text.</summary>
     public async Task SaveResultsAsync(int id, decimal? progress, string? results, bool close)
     {
         if (progress is < 0 or > 100)

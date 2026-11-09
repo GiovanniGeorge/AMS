@@ -6,12 +6,17 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class MaintenancePlanService : IMaintenancePlanService
+/// <summary>
+/// Preventive maintenance plans. A plan covers one asset or a whole category.
+/// Nothing happens on its own: the screen lists what is due now and the user opens
+/// the work order with a button.
+/// </summary>
+public class MaintenancePlanService
 {
     private readonly ApplicationDbContext _db;
-    private readonly IWorkOrderService _workOrders;
+    private readonly WorkOrderService _workOrders;
 
-    public MaintenancePlanService(ApplicationDbContext db, IWorkOrderService workOrders)
+    public MaintenancePlanService(ApplicationDbContext db, WorkOrderService workOrders)
     {
         _db = db;
         _workOrders = workOrders;
@@ -104,6 +109,10 @@ public class MaintenancePlanService : IMaintenancePlanService
     // What is due now
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// Everything due today or earlier: for each asset in each active plan, the last
+    /// preventive work order that plan produced plus one cycle.
+    /// </summary>
     public async Task<List<DuePlanItem>> GetDueAsync()
     {
         var today = DateTime.UtcNow.Date;
@@ -162,6 +171,7 @@ public class MaintenancePlanService : IMaintenancePlanService
         return due.OrderBy(d => d.DueOn).ThenBy(d => d.AssetNumber).ToList();
     }
 
+    /// <summary>Opens a preventive work order for that asset and plan. The asset goes Under maintenance.</summary>
     public async Task<int> OpenWorkOrderAsync(int planId, int assetId)
     {
         var plan = await _db.PreventiveMaintenancePlans.AsNoTracking()

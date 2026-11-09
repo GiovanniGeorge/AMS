@@ -10,7 +10,7 @@ namespace AMS.Infrastructure.Services;
 /// <summary>
 /// The asset is not simple CRUD: it has automatic numbering, a lifecycle stage,
 /// fields that only transactions may change, and a history built from many tables.
-/// Deactivate / Activate still use ICrudService&lt;Asset&gt;.
+/// Deactivate / Activate still use CrudService&lt;Asset&gt;.
 /// </summary>
 public class AssetService
 {

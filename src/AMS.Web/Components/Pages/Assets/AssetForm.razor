@@ -1,14 +1,14 @@
 ﻿@page "/assets/new"
 @page "/assets/{Id:int}/edit"
 @inject AssetService Assets
-@inject ICrudService<Category> Categories
-@inject ICrudService<Brand> Brands
-@inject ICrudService<AssetStatus> Statuses
-@inject ICrudService<Supplier> Suppliers
-@inject ICrudService<Location> Locations
-@inject ICrudService<Department> Departments
-@inject ICrudService<Employee> Employees
-@inject IInvoiceService Invoices
+@inject CrudService<Category> Categories
+@inject CrudService<Brand> Brands
+@inject CrudService<AssetStatus> Statuses
+@inject CrudService<Supplier> Suppliers
+@inject CrudService<Location> Locations
+@inject CrudService<Department> Departments
+@inject CrudService<Employee> Employees
+@inject InvoiceService Invoices
 @inject NavigationManager Nav
 
 <PageTitle>@(IsNew ? "Register Asset" : "Edit Asset")</PageTitle>

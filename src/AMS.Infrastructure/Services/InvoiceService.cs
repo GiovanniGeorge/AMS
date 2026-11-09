@@ -6,7 +6,11 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class InvoiceService : IInvoiceService
+/// <summary>
+/// Supplier invoices and their lines. No approval is involved.
+/// Deactivate / Activate still use CrudService&lt;Invoice&gt;.
+/// </summary>
+public class InvoiceService
 {
     private readonly ApplicationDbContext _db;
 
@@ -47,6 +51,7 @@ public class InvoiceService : IInvoiceService
     public async Task<Invoice?> GetByIdAsync(int id) =>
         await Invoices().FirstOrDefaultAsync(i => i.Id == id);
 
+    /// <summary>The invoices that bill this asset, newest first. Usually none or one.</summary>
     public async Task<List<Invoice>> GetForAssetAsync(int assetId) =>
         await Invoices()
             .Where(i => i.IsActive && i.Lines.Any(l => l.IsActive && l.AssetId == assetId))
@@ -105,6 +110,7 @@ public class InvoiceService : IInvoiceService
         }
     }
 
+    /// <summary>Replaces the header and the lines.</summary>
     public async Task UpdateAsync(int id, InvoiceInput input)
     {
         Validate(input);
@@ -146,6 +152,10 @@ public class InvoiceService : IInvoiceService
         }
     }
 
+    /// <summary>
+    /// Puts one asset on an invoice, creating the invoice when no existing one is given.
+    /// Returns the invoice id.
+    /// </summary>
     public async Task<int> RecordAssetPurchaseAsync(AssetPurchaseInput input)
     {
         try

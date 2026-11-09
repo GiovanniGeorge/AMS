@@ -8,11 +8,11 @@
    Fix one side and the other is chosen here: pass EmployeeId from the employee
    screen (pick the asset), or AssetId from the asset screen (pick the person). *@
 
-@inject IAssetIssuanceService Issuance
+@inject AssetIssuanceService Issuance
 @inject ICurrentUserService CurrentUser
-@inject ICrudService<Employee> Employees
-@inject ICrudService<Store> Stores
-@inject ICrudService<Location> Locations
+@inject CrudService<Employee> Employees
+@inject CrudService<Store> Stores
+@inject CrudService<Location> Locations
 
 <ModalForm Visible="Visible" Error="@_error" Title="@Title" OnSave="SaveAsync" OnCancel="CancelAsync">
     @if (_loading)

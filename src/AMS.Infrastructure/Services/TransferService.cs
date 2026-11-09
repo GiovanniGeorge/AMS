@@ -9,7 +9,12 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class TransferService : ITransferService
+/// <summary>
+/// Moving an asset from one custodian / department / location to another, in two steps:
+/// the approver approves (the asset becomes In transit and the dispatch date is stamped),
+/// then the receiving side confirms receipt (the asset takes the new custodian, department and location).
+/// </summary>
+public class TransferService
 {
     /// <summary>Approved and dispatched, waiting for the receiving side to confirm.</summary>
     public const string InTransit = "In transit";
@@ -44,6 +49,7 @@ public class TransferService : ITransferService
                 .ThenInclude(l => l.Asset)
             .Where(t => t.IsActive);
 
+    /// <summary>All transfers, newest first. <paramref name="status"/> null = all.</summary>
     public async Task<Paged<Transfer>> GetAllAsync(string? status = null, int page = 1)
     {
         var query = Transfers();
@@ -63,6 +69,7 @@ public class TransferService : ITransferService
         return new Paged<Transfer>(items, total);
     }
 
+    /// <summary>Transfers waiting for the approver.</summary>
     public async Task<List<Transfer>> GetPendingAsync()
     {
         return await Transfers()
@@ -71,6 +78,7 @@ public class TransferService : ITransferService
             .ToListAsync();
     }
 
+    /// <summary>The logged-in user's own rejected transfers, with the rejection reason.</summary>
     public async Task<List<Transfer>> GetMyRejectedAsync()
     {
         var userId = await _currentUser.GetUserIdAsync();
@@ -85,6 +93,7 @@ public class TransferService : ITransferService
             .ToListAsync();
     }
 
+    /// <summary>Assets that can be transferred: active, In store or Assigned, with no transfer in progress.</summary>
     public async Task<List<Asset>> GetTransferableAssetsAsync()
     {
         // An asset inside any unfinished request - transfer, issuance or disposal - is busy.
@@ -162,6 +171,7 @@ public class TransferService : ITransferService
     // Approving / rejecting / receiving
     // ------------------------------------------------------------------
 
+    /// <summary>Approver only. Stamps the dispatch date; the asset becomes In transit.</summary>
     public async Task ApproveAsync(int transferId)
     {
         await EnsureApproverAsync();
@@ -195,6 +205,7 @@ public class TransferService : ITransferService
         }
     }
 
+    /// <summary>Approver only. The reason is required; the asset does not change.</summary>
     public async Task RejectAsync(int transferId, string reason)
     {
         await EnsureApproverAsync();
@@ -219,6 +230,10 @@ public class TransferService : ITransferService
         }
     }
 
+    /// <summary>
+    /// The second step: the asset has arrived. It takes the new custodian, department and location,
+    /// a new custody period is opened and the old one is closed.
+    /// </summary>
     public async Task ConfirmReceiptAsync(int transferId)
     {
         try

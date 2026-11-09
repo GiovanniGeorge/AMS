@@ -67,13 +67,3 @@ public record PurchaseReport(
     /// <summary>Assets with no cost on record - they count in, but add nothing to the totals.</summary>
     public int AssetsWithoutCost => Assets.Count(a => a.Cost is null);
 }
-
-/// <summary>Reports read the database and change nothing.</summary>
-public interface IReportService
-{
-    /// <summary>
-    /// What was bought between the two dates (inclusive), and whether it was ever put to use:
-    /// an asset counts as used once it has one approved custody, an item once some of it left the store.
-    /// </summary>
-    Task<PurchaseReport> GetPurchasesAsync(DateTime from, DateTime to);
-}

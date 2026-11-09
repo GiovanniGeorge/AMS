@@ -1,11 +1,11 @@
 ﻿@page "/assets"
 @inject AssetService Assets
-@inject ICrudService<Asset> AssetCrud
-@inject ICrudService<Category> Categories
-@inject ICrudService<Location> Locations
-@inject ICrudService<AssetStatus> Statuses
+@inject CrudService<Asset> AssetCrud
+@inject CrudService<Category> Categories
+@inject CrudService<Location> Locations
+@inject CrudService<AssetStatus> Statuses
 @inject ICurrentUserService CurrentUser
-@inject ICrudService<User> Users
+@inject CrudService<User> Users
 @inject NavigationManager Nav
 
 <PageTitle>Assets Register</PageTitle>

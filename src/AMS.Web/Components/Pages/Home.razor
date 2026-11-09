@@ -1,14 +1,14 @@
 ﻿@page "/"
-@inject ICrudService<Asset> Assets
+@inject CrudService<Asset> Assets
 @inject AssetService AssetSearch
-@inject ICrudService<Category> Categories
-@inject ICrudService<Employee> Employees
-@inject ICrudService<Item> Items
-@inject ICrudService<User> Users
-@inject IAssetIssuanceService Issuance
-@inject ITransferService Transfers
-@inject IIncidentService Incidents
-@inject IDisposalService Disposals
+@inject CrudService<Category> Categories
+@inject CrudService<Employee> Employees
+@inject CrudService<Item> Items
+@inject CrudService<User> Users
+@inject AssetIssuanceService Issuance
+@inject TransferService Transfers
+@inject IncidentService Incidents
+@inject DisposalService Disposals
 @inject ICurrentUserService CurrentUser
 
 <PageTitle>Dashboard</PageTitle>

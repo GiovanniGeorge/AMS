@@ -15,18 +15,3 @@ public record ReceiveInput(
     int? PurchaseOrderId,
     string? Notes,
     List<ReceiveLineInput> Lines);
-
-/// <summary>
-/// Goods arriving into a store. There is no approval: it is applied at once.
-/// An item line raises the store's stock balance; an asset line puts the asset In store
-/// at that store's location.
-/// </summary>
-public interface IReceiveService
-{
-    Task<Paged<Receive>> GetAllAsync(int page = 1);
-
-    /// <summary>Assets a delivery can contain: active and not disposed of.</summary>
-    Task<List<Asset>> GetReceivableAssetsAsync();
-
-    Task<int> CreateAsync(ReceiveInput input);
-}

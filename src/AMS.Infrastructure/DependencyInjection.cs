@@ -29,32 +29,32 @@ public static class DependencyInjection
             // "Incorrect syntax near the keyword 'WITH'". Raise it only with the server.
             options.UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(120)));
 
-        // One registration covers ICrudService<Category>, ICrudService<Brand>, ... etc.
-        services.AddScoped(typeof(ICrudService<>), typeof(CrudService<>));
+        // One registration covers CrudService<Category>, CrudService<Brand>, ... etc.
+        services.AddScoped(typeof(CrudService<>));
 
-        services.AddScoped<IPasswordHasher, Pbkdf2PasswordHasher>();
-        services.AddScoped<IAccountService, AccountService>();
+        services.AddScoped<Pbkdf2PasswordHasher>();
+        services.AddScoped<AccountService>();
         services.AddScoped<AssetService>();
-        services.AddScoped<IDirectoryService, DirectoryService>();
-        services.AddScoped<IReportService, ReportService>();
-        services.AddScoped<IAssetIssuanceService, AssetIssuanceService>();
-        services.AddScoped<IReturnService, ReturnService>();
-        services.AddScoped<ITransferService, TransferService>();
-        services.AddScoped<IWorkOrderService, WorkOrderService>();
-        services.AddScoped<IDisposalService, DisposalService>();
-        services.AddScoped<IIncidentService, IncidentService>();
-        services.AddScoped<IRevaluationService, RevaluationService>();
-        services.AddScoped<IReceiveService, ReceiveService>();
-        services.AddScoped<IStockService, StockService>();
-        services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
-        services.AddScoped<IInvoiceService, InvoiceService>();
-        services.AddScoped<IAssetImportService, AssetImportService>();
-        services.AddScoped<ISampleDataService, SampleDataService>();
-        services.AddScoped<IVerificationService, VerificationService>();
-        services.AddScoped<IAuditLogService, AuditLogService>();
-        services.AddScoped<IMaintenancePlanService, MaintenancePlanService>();
-        services.AddScoped<IAttachmentService, AttachmentService>();
-        services.AddScoped<IDepreciationService, DepreciationService>();
+        services.AddScoped<DirectoryService>();
+        services.AddScoped<ReportService>();
+        services.AddScoped<AssetIssuanceService>();
+        services.AddScoped<ReturnService>();
+        services.AddScoped<TransferService>();
+        services.AddScoped<WorkOrderService>();
+        services.AddScoped<DisposalService>();
+        services.AddScoped<IncidentService>();
+        services.AddScoped<RevaluationService>();
+        services.AddScoped<ReceiveService>();
+        services.AddScoped<StockService>();
+        services.AddScoped<PurchaseOrderService>();
+        services.AddScoped<InvoiceService>();
+        services.AddScoped<AssetImportService>();
+        services.AddScoped<SampleDataService>();
+        services.AddScoped<VerificationService>();
+        services.AddScoped<AuditLogService>();
+        services.AddScoped<MaintenancePlanService>();
+        services.AddScoped<AttachmentService>();
+        services.AddScoped<DepreciationService>();
 
         return services;
     }

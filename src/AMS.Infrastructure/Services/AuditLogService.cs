@@ -4,7 +4,11 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class AuditLogService : IAuditLogService
+/// <summary>
+/// Reading the audit trail. Writing happens inside ApplicationDbContext.SaveChangesAsync
+/// (inserts, updates and deactivations) and in AccountService (login, logout, failed login).
+/// </summary>
+public class AuditLogService
 {
     private readonly ApplicationDbContext _db;
 
@@ -57,6 +61,7 @@ public class AuditLogService : IAuditLogService
         return new AuditPage(items, total);
     }
 
+    /// <summary>The entity names that actually appear in the log, for the filter dropdown.</summary>
     public async Task<List<string>> GetEntityNamesAsync()
     {
         return await _db.AuditLogs

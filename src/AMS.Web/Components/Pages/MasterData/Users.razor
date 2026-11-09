@@ -1,11 +1,11 @@
 ﻿@page "/master/users"
 @attribute [Authorize(Roles = AppRoles.Admin)]
-@inject IDirectoryService Directory
-@inject ICrudService<User> Service
-@inject ICrudService<Role> RoleService
-@inject ICrudService<UserRole> UserRoleService
-@inject ICrudService<Employee> Employees
-@inject IPasswordHasher Hasher
+@inject DirectoryService Directory
+@inject CrudService<User> Service
+@inject CrudService<Role> RoleService
+@inject CrudService<UserRole> UserRoleService
+@inject CrudService<Employee> Employees
+@inject Pbkdf2PasswordHasher Hasher
 @inject NavigationManager Nav
 
 <PageTitle>Users</PageTitle>

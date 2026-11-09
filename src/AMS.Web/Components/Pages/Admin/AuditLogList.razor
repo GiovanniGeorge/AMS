@@ -1,7 +1,7 @@
 ﻿@page "/audit-log"
 @attribute [Authorize(Roles = AppRoles.Admin)]
-@inject IAuditLogService Audit
-@inject ICrudService<User> Users
+@inject AuditLogService Audit
+@inject CrudService<User> Users
 
 <PageTitle>Audit Log</PageTitle>
 

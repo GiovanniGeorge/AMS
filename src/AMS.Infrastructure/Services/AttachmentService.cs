@@ -5,8 +5,16 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class AttachmentService : IAttachmentService
+/// <summary>
+/// Files attached to a record (asset photo, invoice scan, contract...).
+/// There is no file system and no download endpoint: the bytes live in Attachments.Content
+/// and the page hands them to the browser as a data link.
+/// </summary>
+public class AttachmentService
 {
+    /// <summary>The largest file AMS accepts, in bytes (5 MB).</summary>
+    public const int MaxBytes = 5 * 1024 * 1024;
+
     private readonly ApplicationDbContext _db;
     private readonly ICurrentUserService _currentUser;
 
@@ -16,6 +24,7 @@ public class AttachmentService : IAttachmentService
         _currentUser = currentUser;
     }
 
+    /// <summary>The attachments of one record, without their bytes, so the list stays light.</summary>
     public async Task<List<AttachmentInfo>> GetForAsync(string relatedEntityType, int relatedEntityId)
     {
         // The bytes are left out on purpose: a list of ten photos should not pull ten files.
@@ -36,6 +45,7 @@ public class AttachmentService : IAttachmentService
             .ToListAsync();
     }
 
+    /// <summary>One attachment with its bytes, for downloading.</summary>
     public async Task<Attachment?> GetWithContentAsync(int id)
     {
         return await _db.Attachments.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id && a.IsActive);
@@ -48,7 +58,7 @@ public class AttachmentService : IAttachmentService
             throw new InvalidOperationException("The file is empty.");
         }
 
-        if (input.Content.Length > IAttachmentService.MaxBytes)
+        if (input.Content.Length > AttachmentService.MaxBytes)
         {
             throw new InvalidOperationException("The file is larger than 5 MB.");
         }
@@ -83,6 +93,7 @@ public class AttachmentService : IAttachmentService
         }
     }
 
+    /// <summary>Soft delete, like everything else in AMS.</summary>
     public async Task DeactivateAsync(int id)
     {
         try

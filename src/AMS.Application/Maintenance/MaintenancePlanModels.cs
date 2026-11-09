@@ -46,26 +46,3 @@ public record DuePlanItem(
     string Frequency,
     DateTime? LastDone,
     DateTime DueOn);
-
-/// <summary>
-/// Preventive maintenance plans. A plan covers one asset or a whole category.
-/// Nothing happens on its own: the screen lists what is due now and the user opens
-/// the work order with a button.
-/// </summary>
-public interface IMaintenancePlanService
-{
-    Task<List<PreventiveMaintenancePlan>> GetAllAsync();
-
-    Task<int> CreateAsync(MaintenancePlanInput input);
-
-    Task UpdateAsync(int id, MaintenancePlanInput input);
-
-    /// <summary>
-    /// Everything due today or earlier: for each asset in each active plan, the last
-    /// preventive work order that plan produced plus one cycle.
-    /// </summary>
-    Task<List<DuePlanItem>> GetDueAsync();
-
-    /// <summary>Opens a preventive work order for that asset and plan. The asset goes Under maintenance.</summary>
-    Task<int> OpenWorkOrderAsync(int planId, int assetId);
-}

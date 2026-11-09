@@ -6,7 +6,8 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class ReportService : IReportService
+/// <summary>Reports read the database and change nothing.</summary>
+public class ReportService
 {
     private readonly ApplicationDbContext _db;
 
@@ -15,6 +16,10 @@ public class ReportService : IReportService
         _db = db;
     }
 
+    /// <summary>
+    /// What was bought between the two dates (inclusive), and whether it was ever put to use:
+    /// an asset counts as used once it has one approved custody, an item once some of it left the store.
+    /// </summary>
     public async Task<PurchaseReport> GetPurchasesAsync(DateTime from, DateTime to)
     {
         // Both ends are inclusive: a purchase stamped at 14:30 on the "to" day still counts.

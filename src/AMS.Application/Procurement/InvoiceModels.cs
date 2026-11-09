@@ -41,31 +41,3 @@ public record AssetPurchaseInput(
     DateTime? InvoiceDate,
     decimal? Amount,
     string? Currency);
-
-/// <summary>
-/// Supplier invoices and their lines. No approval is involved.
-/// Deactivate / Activate still use ICrudService&lt;Invoice&gt;.
-/// </summary>
-public interface IInvoiceService
-{
-    Task<Paged<Invoice>> GetAllAsync(bool includeInactive = false, int page = 1);
-
-    Task<Invoice?> GetByIdAsync(int id);
-
-    /// <summary>The invoices that bill this asset, newest first. Usually none or one.</summary>
-    Task<List<Invoice>> GetForAssetAsync(int assetId);
-
-    /// <summary>Assets that can still be billed: active, and not already on an invoice line.</summary>
-    Task<List<Asset>> GetBillableAssetsAsync(int? includeAssetId = null);
-
-    Task<int> CreateAsync(InvoiceInput input);
-
-    /// <summary>Replaces the header and the lines.</summary>
-    Task UpdateAsync(int id, InvoiceInput input);
-
-    /// <summary>
-    /// Puts one asset on an invoice, creating the invoice when no existing one is given.
-    /// Returns the invoice id.
-    /// </summary>
-    Task<int> RecordAssetPurchaseAsync(AssetPurchaseInput input);
-}

@@ -1,6 +1,6 @@
 @* A store item is always counted in something, so the quick-add asks for the unit too. *@
 
-@inject ICrudService<Unit> Units
+@inject CrudService<Unit> Units
 
 <QuickAdd TItem="Item" What="item" OnAdded="AddedAsync"
           Prepare="Fill" Validate="Check">

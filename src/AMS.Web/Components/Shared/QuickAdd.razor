@@ -9,7 +9,7 @@
    passes them through Extra / Prepare, or is left to its own screen. *@
 
 @typeparam TItem where TItem : BaseEntity, INamedEntity, new()
-@inject ICrudService<TItem> Service
+@inject CrudService<TItem> Service
 
 <span class="ams-quickadd">
     @if (!_open)

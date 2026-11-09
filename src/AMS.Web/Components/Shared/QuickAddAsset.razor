@@ -6,8 +6,8 @@
    are left empty here on purpose - the invoice fills them in when it is saved. *@
 
 @inject AssetService Assets
-@inject ICrudService<Category> Categories
-@inject ICrudService<AssetStatus> Statuses
+@inject CrudService<Category> Categories
+@inject CrudService<AssetStatus> Statuses
 
 <span class="ams-quickadd">
     @if (!_open)

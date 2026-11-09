@@ -8,7 +8,11 @@ using AMS.Application.Common;
 
 namespace AMS.Infrastructure.Services;
 
-public class RevaluationService : IRevaluationService
+/// <summary>
+/// Re-stating an asset's value. There is no approval and the asset's purchase cost is not touched:
+/// this is a history of values only.
+/// </summary>
+public class RevaluationService
 {
     private readonly ApplicationDbContext _db;
 
@@ -34,6 +38,7 @@ public class RevaluationService : IRevaluationService
         return new Paged<RevaluationEvent>(items, total);
     }
 
+    /// <summary>Assets that can be revalued: active and not disposed of.</summary>
     public async Task<List<Asset>> GetRevaluableAssetsAsync()
     {
         return await _db.Assets
@@ -43,6 +48,7 @@ public class RevaluationService : IRevaluationService
             .ToListAsync();
     }
 
+    /// <summary>The value the next revaluation starts from: the last new value, or the purchase cost.</summary>
     public async Task<decimal?> GetCurrentValueAsync(int assetId)
     {
         var last = await _db.RevaluationEvents

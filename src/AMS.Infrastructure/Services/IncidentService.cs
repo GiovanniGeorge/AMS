@@ -10,18 +10,23 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class IncidentService : IIncidentService
+/// <summary>
+/// Incidents on assets. Damaged / Malfunction wait for the approver, who decides whether the asset
+/// goes to a work order or to disposal. Missing / Stolen are not approved: a disposal request is
+/// created immediately and the approver sees the asset's last stage and last custodian.
+/// </summary>
+public class IncidentService
 {
     private readonly ApplicationDbContext _db;
     private readonly ICurrentUserService _currentUser;
-    private readonly IDisposalService _disposals;
-    private readonly IWorkOrderService _workOrders;
+    private readonly DisposalService _disposals;
+    private readonly WorkOrderService _workOrders;
 
     public IncidentService(
         ApplicationDbContext db,
         ICurrentUserService currentUser,
-        IDisposalService disposals,
-        IWorkOrderService workOrders)
+        DisposalService disposals,
+        WorkOrderService workOrders)
     {
         _db = db;
         _currentUser = currentUser;
@@ -65,6 +70,7 @@ public class IncidentService : IIncidentService
         return new Paged<Incident>(items, total);
     }
 
+    /// <summary>Damaged / Malfunction incidents waiting for the approver's decision.</summary>
     public async Task<List<Incident>> GetPendingAsync()
     {
         return await Incidents()
@@ -73,6 +79,7 @@ public class IncidentService : IIncidentService
             .ToListAsync();
     }
 
+    /// <summary>The logged-in user's own rejected incidents, with the reason.</summary>
     public async Task<List<Incident>> GetMyRejectedAsync()
     {
         var userId = await _currentUser.GetUserIdAsync();
@@ -87,6 +94,7 @@ public class IncidentService : IIncidentService
             .ToListAsync();
     }
 
+    /// <summary>Missing / stolen assets that have not been disposed of yet - shown to the approver.</summary>
     public async Task<List<Incident>> GetLossNoticesAsync()
     {
         return await Incidents()
@@ -96,6 +104,7 @@ public class IncidentService : IIncidentService
             .ToListAsync();
     }
 
+    /// <summary>Assets an incident can be reported against: active and not already disposed of.</summary>
     public async Task<List<Asset>> GetReportableAssetsAsync()
     {
         return await _db.Assets
@@ -110,6 +119,7 @@ public class IncidentService : IIncidentService
     // Reporting an incident
     // ------------------------------------------------------------------
 
+    /// <summary>Records the incident. Missing / Stolen also create the disposal request.</summary>
     public async Task<int> CreateAsync(IncidentInput input)
     {
         var asset = await _db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == input.AssetId)
@@ -166,6 +176,7 @@ public class IncidentService : IIncidentService
     // The approver's decision
     // ------------------------------------------------------------------
 
+    /// <summary>Approver only. Opens a corrective work order; the asset goes Under maintenance.</summary>
     public async Task SendToWorkOrderAsync(int incidentId)
     {
         await EnsureApproverAsync();
@@ -182,6 +193,7 @@ public class IncidentService : IIncidentService
             incidentId);
     }
 
+    /// <summary>Approver only. Opens a disposal request, which still needs its own approval.</summary>
     public async Task SendToDisposalAsync(int incidentId)
     {
         await EnsureApproverAsync();
@@ -204,6 +216,7 @@ public class IncidentService : IIncidentService
             incidentId);
     }
 
+    /// <summary>Approver only. The reason is required; the asset does not change.</summary>
     public async Task RejectAsync(int incidentId, string reason)
     {
         await EnsureApproverAsync();

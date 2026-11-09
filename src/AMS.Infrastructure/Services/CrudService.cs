@@ -20,7 +20,7 @@ namespace AMS.Infrastructure.Services;
 /// "another instance with the same key is already being tracked", and a failed save
 /// would be retried by every later save on the same tab.
 /// </summary>
-public class CrudService<T> : ICrudService<T> where T : BaseEntity
+public class CrudService<T> where T : BaseEntity
 {
     private readonly ApplicationDbContext _db;
 
@@ -46,6 +46,7 @@ public class CrudService<T> : ICrudService<T> where T : BaseEntity
         return await query.OrderByDescending(e => e.Id).ToListAsync();
     }
 
+    /// <summary>One page of the same list, for screens that grow with use.</summary>
     public async Task<Paged<T>> GetPageAsync(int page = 1, bool includeInactive = false,
         params Expression<Func<T, object>>[] includes)
     {
@@ -114,8 +115,10 @@ public class CrudService<T> : ICrudService<T> where T : BaseEntity
         }
     }
 
+    /// <summary>Soft delete: sets IsActive = false. The row stays in the database.</summary>
     public async Task DeactivateAsync(int id) => await SetActiveAsync(id, false);
 
+    /// <summary>Brings a deactivated row back.</summary>
     public async Task ActivateAsync(int id) => await SetActiveAsync(id, true);
 
     private async Task SetActiveAsync(int id, bool isActive)

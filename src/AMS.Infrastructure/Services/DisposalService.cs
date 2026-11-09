@@ -9,7 +9,13 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class DisposalService : IDisposalService
+/// <summary>
+/// Taking an asset out of service for good. The approver approves it; the asset then becomes Disposed.
+/// The net book value is suggested by straight-line depreciation
+/// (purchase cost, the category's useful life in years and salvage value) and can be edited.
+/// Gain / loss = sale proceeds - net book value.
+/// </summary>
+public class DisposalService
 {
     private readonly ApplicationDbContext _db;
     private readonly ICurrentUserService _currentUser;
@@ -53,6 +59,7 @@ public class DisposalService : IDisposalService
         return new Paged<DisposalRequest>(items, total);
     }
 
+    /// <summary>Requests waiting for the approver.</summary>
     public async Task<List<DisposalRequest>> GetPendingAsync()
     {
         return await Requests()
@@ -61,6 +68,7 @@ public class DisposalService : IDisposalService
             .ToListAsync();
     }
 
+    /// <summary>The logged-in user's own rejected requests, with the reason.</summary>
     public async Task<List<DisposalRequest>> GetMyRejectedAsync()
     {
         var userId = await _currentUser.GetUserIdAsync();
@@ -75,6 +83,7 @@ public class DisposalService : IDisposalService
             .ToListAsync();
     }
 
+    /// <summary>Assets that can be disposed of: active, not already disposed, with no pending request.</summary>
     public async Task<List<Asset>> GetDisposableAssetsAsync()
     {
         // An asset inside any unfinished request - disposal, issuance or transfer - is busy.
@@ -93,6 +102,10 @@ public class DisposalService : IDisposalService
     // Net book value
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// The suggested net book value: the latest stored depreciation entry if there is one,
+    /// otherwise straight line from the purchase cost. Null when the asset has no purchase cost.
+    /// </summary>
     public async Task<decimal?> SuggestNetBookValueAsync(int assetId, DateTime asOf)
     {
         // A stored depreciation history wins over a calculation.
@@ -228,6 +241,7 @@ public class DisposalService : IDisposalService
     // Approving / rejecting
     // ------------------------------------------------------------------
 
+    /// <summary>Approver only. The asset becomes Disposed and its custody is closed.</summary>
     public async Task ApproveAsync(int disposalRequestId)
     {
         await EnsureApproverAsync();
@@ -274,6 +288,7 @@ public class DisposalService : IDisposalService
         }
     }
 
+    /// <summary>Approver only. The reason is required; the asset does not change.</summary>
     public async Task RejectAsync(int disposalRequestId, string reason)
     {
         await EnsureApproverAsync();

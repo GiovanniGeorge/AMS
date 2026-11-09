@@ -8,7 +8,11 @@ using AMS.Application.Common;
 
 namespace AMS.Infrastructure.Services;
 
-public class WorkOrderService : IWorkOrderService
+/// <summary>
+/// Maintenance work on an asset. Opening a work order puts the asset Under maintenance;
+/// closing it sends the asset back In store and clears its custodian.
+/// </summary>
+public class WorkOrderService
 {
     private readonly ApplicationDbContext _db;
 
@@ -43,6 +47,7 @@ public class WorkOrderService : IWorkOrderService
         return new Paged<WorkOrder>(items, total);
     }
 
+    /// <summary>Assets a work order can be opened for: active, not disposed, not already in maintenance or in transit.</summary>
     public async Task<List<Asset>> GetMaintainableAssetsAsync()
     {
         return await _db.Assets
@@ -55,6 +60,10 @@ public class WorkOrderService : IWorkOrderService
             .ToListAsync();
     }
 
+    /// <summary>
+    /// <paramref name="incidentId"/> is filled in when the administrator opened it from an incident,
+    /// <paramref name="planId"/> when it came from a preventive maintenance plan.
+    /// </summary>
     public async Task<int> CreateAsync(WorkOrderInput input, int? incidentId = null, int? planId = null)
     {
         try
@@ -97,6 +106,7 @@ public class WorkOrderService : IWorkOrderService
         }
     }
 
+    /// <summary>Closes the work order: the asset returns In store and its custodian is cleared.</summary>
     public async Task CloseAsync(WorkOrderClosure closure)
     {
         try

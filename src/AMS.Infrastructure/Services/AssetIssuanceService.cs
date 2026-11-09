@@ -9,7 +9,11 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class AssetIssuanceService : IAssetIssuanceService
+/// <summary>
+/// Asset issuance: one request creates an Issue (asset leaves the store) and an
+/// AssetAssignment (the custody), both Pending. The approver approves or rejects the assignment.
+/// </summary>
+public class AssetIssuanceService
 {
     private readonly ApplicationDbContext _db;
     private readonly ICurrentUserService _currentUser;
@@ -35,6 +39,7 @@ public class AssetIssuanceService : IAssetIssuanceService
             .Include(a => a.Approval)
             .Where(a => a.IsActive && a.IssueId != null);
 
+    /// <summary>All issuance requests, newest first. <paramref name="status"/> null = all.</summary>
     public async Task<Paged<AssetAssignment>> GetAllAsync(string? status = null, int page = 1)
     {
         var query = Issuances();
@@ -54,6 +59,7 @@ public class AssetIssuanceService : IAssetIssuanceService
         return new Paged<AssetAssignment>(items, total);
     }
 
+    /// <summary>Requests waiting for the approver.</summary>
     public async Task<List<AssetAssignment>> GetPendingAsync()
     {
         return await Issuances()
@@ -62,6 +68,7 @@ public class AssetIssuanceService : IAssetIssuanceService
             .ToListAsync();
     }
 
+    /// <summary>The logged-in user's own rejected requests, with the rejection reason.</summary>
     public async Task<List<AssetAssignment>> GetMyRejectedAsync()
     {
         var userId = await _currentUser.GetUserIdAsync();
@@ -76,6 +83,7 @@ public class AssetIssuanceService : IAssetIssuanceService
             .ToListAsync();
     }
 
+    /// <summary>Assets that can be issued: active, In store, and without a pending request.</summary>
     public async Task<List<Asset>> GetIssuableAssetsAsync()
     {
         // Not just a pending issuance: an asset inside a transfer or a disposal is busy too.
@@ -94,6 +102,7 @@ public class AssetIssuanceService : IAssetIssuanceService
     // Creating a request
     // ------------------------------------------------------------------
 
+    /// <summary>Creates the Issue + AssetAssignment pair. Returns the assignment Id.</summary>
     public async Task<int> CreateAsync(IssuanceRequest request)
     {
         var asset = await _db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == request.AssetId)
@@ -149,6 +158,11 @@ public class AssetIssuanceService : IAssetIssuanceService
         }
     }
 
+    /// <summary>
+    /// Administrator only: creates the issuance and approves it in the same step, so the asset
+    /// moves to the employee at once. Used by the Assign button on the employee and asset screens -
+    /// the administrator is the approver, so asking him to approve his own request adds nothing.
+    /// </summary>
     public async Task<int> CreateApprovedAsync(IssuanceRequest request)
     {
         // Only the administrator may move custody. A direct assignment skips the waiting
@@ -215,6 +229,7 @@ public class AssetIssuanceService : IAssetIssuanceService
     // Approving / rejecting
     // ------------------------------------------------------------------
 
+    /// <summary>Approver only. The asset takes the custodian, department and location and becomes Assigned.</summary>
     public async Task ApproveAsync(int assignmentId)
     {
         await EnsureApproverAsync();
@@ -248,6 +263,7 @@ public class AssetIssuanceService : IAssetIssuanceService
         }
     }
 
+    /// <summary>Approver only. The reason is required; the asset does not change.</summary>
     public async Task RejectAsync(int assignmentId, string reason)
     {
         await EnsureApproverAsync();

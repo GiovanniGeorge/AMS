@@ -1,5 +1,5 @@
 ﻿@page "/master/employees/{Id:int}"
-@inject IDirectoryService Directory
+@inject DirectoryService Directory
 @inject NavigationManager Nav
 
 <PageTitle>@(_employee?.Name ?? "Employee")</PageTitle>

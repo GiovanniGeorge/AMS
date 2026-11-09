@@ -22,21 +22,3 @@ public record StockAdjustmentInput(
     string Direction,
     string Reason,
     DateTime Date);
-
-/// <summary>
-/// Consumable items in stores. Items never go out through an Issue (that is for assets only):
-/// they leave through a stock adjustment with a reason.
-/// Balances are kept in StockBalance, one row per (store, item).
-/// </summary>
-public interface IStockService
-{
-    Task<List<StockBalance>> GetBalancesAsync();
-
-    Task<Paged<StockAdjustment>> GetAdjustmentsAsync(int page = 1);
-
-    /// <summary>The current quantity of one item in one store (0 when there is no row yet).</summary>
-    Task<decimal> GetQuantityAsync(int storeId, int itemId);
-
-    /// <summary>Applies the adjustment at once and moves the balance. Stock cannot go below zero.</summary>
-    Task<int> AdjustAsync(StockAdjustmentInput input);
-}

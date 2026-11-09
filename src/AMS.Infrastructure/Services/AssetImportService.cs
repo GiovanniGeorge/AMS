@@ -7,7 +7,12 @@ using AMS.Infrastructure.Persistence;
 
 namespace AMS.Infrastructure.Services;
 
-public class AssetImportService : IAssetImportService
+/// <summary>
+/// Registering many assets from a spreadsheet.
+/// Reading and importing are separate on purpose: nothing is written until the
+/// administrator has seen what the file contains and what was rejected.
+/// </summary>
+public class AssetImportService
 {
     /// <summary>The columns, in order. The header row must match these names.</summary>
     private static readonly string[] Columns =
@@ -30,6 +35,7 @@ public class AssetImportService : IAssetImportService
     // Template
     // ------------------------------------------------------------------
 
+    /// <summary>An empty workbook with the right columns and one example row.</summary>
     public byte[] BuildTemplate()
     {
         using var workbook = new XLWorkbook();
@@ -87,6 +93,7 @@ public class AssetImportService : IAssetImportService
     // Reading
     // ------------------------------------------------------------------
 
+    /// <summary>Reads and validates the file. Writes nothing.</summary>
     public async Task<ImportPreview> ReadAsync(Stream file, string fileName)
     {
         if (!fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
@@ -224,6 +231,11 @@ public class AssetImportService : IAssetImportService
     // Importing
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// Registers the valid rows. Lookups named in the sheet that do not exist yet
+    /// (category, brand, supplier, location, department, condition) are created, and
+    /// their names are returned so the administrator can see what the file added.
+    /// </summary>
     public async Task<ImportResult> ImportAsync(IReadOnlyList<ImportRow> rows)
     {
         var valid = rows.Where(r => r.IsValid).ToList();
@@ -342,6 +354,7 @@ public class AssetImportService : IAssetImportService
     // Rejected rows back out
     // ------------------------------------------------------------------
 
+    /// <summary>The rejected rows as a workbook, with the reason in the last column.</summary>
     public byte[] BuildRejectedWorkbook(IReadOnlyList<ImportRow> rows)
     {
         using var workbook = new XLWorkbook();
