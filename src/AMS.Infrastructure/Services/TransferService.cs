@@ -22,12 +22,12 @@ public class TransferService
     /// <summary>Receipt confirmed - the transfer is finished.</summary>
     public const string Received = "Received";
 
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
     private readonly ICurrentUserService _currentUser;
 
-    public TransferService(ApplicationDbContext db, ICurrentUserService currentUser)
+    public TransferService(IDbContextFactory<ApplicationDbContext> dbFactory, ICurrentUserService currentUser)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _currentUser = currentUser;
     }
 
@@ -35,8 +35,8 @@ public class TransferService
     // Reading
     // ------------------------------------------------------------------
 
-    private IQueryable<Transfer> Transfers() =>
-        _db.Transfers
+    private IQueryable<Transfer> Transfers(ApplicationDbContext db) =>
+        db.Transfers
             .AsNoTracking()
             .Include(t => t.FromCustodian)
             .Include(t => t.FromDepartment)
@@ -52,7 +52,9 @@ public class TransferService
     /// <summary>All transfers, newest first. <paramref name="status"/> null = all.</summary>
     public async Task<Paged<Transfer>> GetAllAsync(string? status = null, int page = 1)
     {
-        var query = Transfers();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = Transfers(db);
 
         if (!string.IsNullOrEmpty(status))
         {
@@ -72,7 +74,9 @@ public class TransferService
     /// <summary>Transfers waiting for the approver.</summary>
     public async Task<List<Transfer>> GetPendingAsync()
     {
-        return await Transfers()
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await Transfers(db)
             .Where(t => t.Status == RequestStatus.Pending)
             .OrderBy(t => t.Id)
             .ToListAsync();
@@ -81,13 +85,15 @@ public class TransferService
     /// <summary>The logged-in user's own rejected transfers, with the rejection reason.</summary>
     public async Task<List<Transfer>> GetMyRejectedAsync()
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         var userId = await _currentUser.GetUserIdAsync();
         if (userId is null)
         {
             return new List<Transfer>();
         }
 
-        return await Transfers()
+        return await Transfers(db)
             .Where(t => t.Status == RequestStatus.Rejected && t.CreatedById == userId)
             .OrderByDescending(t => t.Id)
             .ToListAsync();
@@ -96,10 +102,12 @@ public class TransferService
     /// <summary>Assets that can be transferred: active, In store or Assigned, with no transfer in progress.</summary>
     public async Task<List<Asset>> GetTransferableAssetsAsync()
     {
-        // An asset inside any unfinished request - transfer, issuance or disposal - is busy.
-        var busy = PendingRequests.AssetIds(_db);
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
-        return await _db.Assets
+        // An asset inside any unfinished request - transfer, issuance or disposal - is busy.
+        var busy = PendingRequests.AssetIds(db);
+
+        return await db.Assets
             .AsNoTracking()
             .Include(a => a.Custodian)
             .Include(a => a.Location)
@@ -116,55 +124,50 @@ public class TransferService
 
     public async Task<int> CreateAsync(TransferInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (input.ToCustodianId is null && input.ToDepartmentId is null && input.ToLocationId is null)
         {
             throw new InvalidOperationException("Give at least one destination: custodian, department or location.");
         }
 
-        try
+        var asset = await db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == input.AssetId)
+                    ?? throw new InvalidOperationException("Asset not found.");
+
+        if (!asset.IsActive
+            || (asset.LifecycleStage != LifecycleStage.InStore && asset.LifecycleStage != LifecycleStage.Assigned))
         {
-            var asset = await _db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == input.AssetId)
-                        ?? throw new InvalidOperationException("Asset not found.");
-
-            if (!asset.IsActive
-                || (asset.LifecycleStage != LifecycleStage.InStore && asset.LifecycleStage != LifecycleStage.Assigned))
-            {
-                throw new InvalidOperationException("Only an active asset that is In store or Assigned can be transferred.");
-            }
-
-            var busy = await _db.TransferLines.AnyAsync(l => l.IsActive
-                                                             && l.AssetId == input.AssetId
-                                                             && l.Transfer!.IsActive
-                                                             && (l.Transfer.Status == RequestStatus.Pending
-                                                                 || l.Transfer.Status == InTransit));
-            if (busy)
-            {
-                throw new InvalidOperationException("This asset already has a transfer in progress.");
-            }
-
-            await PendingRequests.EnsureFreeAsync(_db, input.AssetId);
-
-            var transfer = new Transfer
-            {
-                Date = input.Date,
-                FromCustodianId = asset.CustodianId,
-                FromDepartmentId = asset.DepartmentId,
-                FromLocationId = asset.LocationId,
-                ToCustodianId = input.ToCustodianId,
-                ToDepartmentId = input.ToDepartmentId,
-                ToLocationId = input.ToLocationId,
-                Status = RequestStatus.Pending
-            };
-            transfer.Lines.Add(new TransferLine { AssetId = input.AssetId });
-
-            _db.Transfers.Add(transfer);
-            await _db.SaveChangesAsync();
-            return transfer.Id;
+            throw new InvalidOperationException("Only an active asset that is In store or Assigned can be transferred.");
         }
-        finally
+
+        var busy = await db.TransferLines.AnyAsync(l => l.IsActive
+                                                         && l.AssetId == input.AssetId
+                                                         && l.Transfer!.IsActive
+                                                         && (l.Transfer.Status == RequestStatus.Pending
+                                                             || l.Transfer.Status == InTransit));
+        if (busy)
         {
-            _db.ChangeTracker.Clear();
+            throw new InvalidOperationException("This asset already has a transfer in progress.");
         }
+
+        await PendingRequests.EnsureFreeAsync(db, input.AssetId);
+
+        var transfer = new Transfer
+        {
+            Date = input.Date,
+            FromCustodianId = asset.CustodianId,
+            FromDepartmentId = asset.DepartmentId,
+            FromLocationId = asset.LocationId,
+            ToCustodianId = input.ToCustodianId,
+            ToDepartmentId = input.ToDepartmentId,
+            ToLocationId = input.ToLocationId,
+            Status = RequestStatus.Pending
+        };
+        transfer.Lines.Add(new TransferLine { AssetId = input.AssetId });
+
+        db.Transfers.Add(transfer);
+        await db.SaveChangesAsync();
+        return transfer.Id;
     }
 
     // ------------------------------------------------------------------
@@ -174,40 +177,37 @@ public class TransferService
     /// <summary>Approver only. Stamps the dispatch date; the asset becomes In transit.</summary>
     public async Task ApproveAsync(int transferId)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         await EnsureApproverAsync();
 
-        try
+        var transfer = await LoadPendingAsync(db, transferId);
+        var assetIds = transfer.Lines.Where(l => l.IsActive).Select(l => l.AssetId).ToList();
+        var assets = await db.Assets.Where(a => assetIds.Contains(a.Id)).ToListAsync();
+
+        foreach (var asset in assets)
         {
-            var transfer = await LoadPendingAsync(transferId);
-            var assetIds = transfer.Lines.Where(l => l.IsActive).Select(l => l.AssetId).ToList();
-            var assets = await _db.Assets.Where(a => assetIds.Contains(a.Id)).ToListAsync();
-
-            foreach (var asset in assets)
+            if (!asset.IsActive
+                || (asset.LifecycleStage != LifecycleStage.InStore && asset.LifecycleStage != LifecycleStage.Assigned))
             {
-                if (!asset.IsActive
-                    || (asset.LifecycleStage != LifecycleStage.InStore && asset.LifecycleStage != LifecycleStage.Assigned))
-                {
-                    throw new InvalidOperationException($"Asset {asset.AssetNumber} can no longer be transferred.");
-                }
-
-                asset.LifecycleStage = LifecycleStage.InTransit;
+                throw new InvalidOperationException($"Asset {asset.AssetNumber} can no longer be transferred.");
             }
 
-            transfer.Approval = await NewApprovalAsync(RequestStatus.Approved, comments: null);
-            transfer.Status = InTransit;
-            transfer.DispatchDate = DateTime.UtcNow;
+            asset.LifecycleStage = LifecycleStage.InTransit;
+        }
 
-            await _db.SaveChangesAsync();
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        transfer.Approval = await NewApprovalAsync(RequestStatus.Approved, comments: null);
+        transfer.Status = InTransit;
+        transfer.DispatchDate = DateTime.UtcNow;
+
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Approver only. The reason is required; the asset does not change.</summary>
     public async Task RejectAsync(int transferId, string reason)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         await EnsureApproverAsync();
 
         if (string.IsNullOrWhiteSpace(reason))
@@ -215,19 +215,12 @@ public class TransferService
             throw new InvalidOperationException("A rejection reason is required.");
         }
 
-        try
-        {
-            var transfer = await LoadPendingAsync(transferId);
+        var transfer = await LoadPendingAsync(db, transferId);
 
-            transfer.Approval = await NewApprovalAsync(RequestStatus.Rejected, reason.Trim());
-            transfer.Status = RequestStatus.Rejected;
+        transfer.Approval = await NewApprovalAsync(RequestStatus.Rejected, reason.Trim());
+        transfer.Status = RequestStatus.Rejected;
 
-            await _db.SaveChangesAsync();
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        await db.SaveChangesAsync();
     }
 
     /// <summary>
@@ -236,71 +229,66 @@ public class TransferService
     /// </summary>
     public async Task ConfirmReceiptAsync(int transferId)
     {
-        try
-        {
-            var transfer = await _db.Transfers
-                .Include(t => t.Lines)
-                .FirstOrDefaultAsync(t => t.Id == transferId && t.IsActive)
-                ?? throw new InvalidOperationException("Transfer not found.");
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
-            if (transfer.Status != InTransit)
+        var transfer = await db.Transfers
+            .Include(t => t.Lines)
+            .FirstOrDefaultAsync(t => t.Id == transferId && t.IsActive)
+            ?? throw new InvalidOperationException("Transfer not found.");
+
+        if (transfer.Status != InTransit)
+        {
+            throw new InvalidOperationException("Only a transfer that is In transit can be confirmed.");
+        }
+
+        var assetIds = transfer.Lines.Where(l => l.IsActive).Select(l => l.AssetId).ToList();
+        var assets = await db.Assets.Where(a => assetIds.Contains(a.Id)).ToListAsync();
+
+        var now = DateTime.UtcNow;
+        var arrivalDate = transfer.Date ?? now;
+
+        foreach (var asset in assets)
+        {
+            // Close the custody the asset left.
+            var openCustody = await db.AssetAssignments
+                .Where(a => a.IsActive && a.AssetId == asset.Id && a.ReturnDate == null
+                            && a.Status == RequestStatus.Approved)
+                .OrderByDescending(a => a.Id)
+                .FirstOrDefaultAsync();
+
+            if (openCustody is not null)
             {
-                throw new InvalidOperationException("Only a transfer that is In transit can be confirmed.");
+                openCustody.ReturnDate = arrivalDate;
             }
 
-            var assetIds = transfer.Lines.Where(l => l.IsActive).Select(l => l.AssetId).ToList();
-            var assets = await _db.Assets.Where(a => assetIds.Contains(a.Id)).ToListAsync();
+            asset.CustodianId = transfer.ToCustodianId;
+            asset.DepartmentId = transfer.ToDepartmentId;
+            asset.LocationId = transfer.ToLocationId ?? asset.LocationId;
+            asset.LifecycleStage = transfer.ToCustodianId is null
+                ? LifecycleStage.InStore
+                : LifecycleStage.Assigned;
 
-            var now = DateTime.UtcNow;
-            var arrivalDate = transfer.Date ?? now;
-
-            foreach (var asset in assets)
+            // A transfer to a custodian opens a new custody period (no Issue behind it).
+            if (transfer.ToCustodianId is int custodianId)
             {
-                // Close the custody the asset left.
-                var openCustody = await _db.AssetAssignments
-                    .Where(a => a.IsActive && a.AssetId == asset.Id && a.ReturnDate == null
-                                && a.Status == RequestStatus.Approved)
-                    .OrderByDescending(a => a.Id)
-                    .FirstOrDefaultAsync();
-
-                if (openCustody is not null)
+                db.AssetAssignments.Add(new AssetAssignment
                 {
-                    openCustody.ReturnDate = arrivalDate;
-                }
-
-                asset.CustodianId = transfer.ToCustodianId;
-                asset.DepartmentId = transfer.ToDepartmentId;
-                asset.LocationId = transfer.ToLocationId ?? asset.LocationId;
-                asset.LifecycleStage = transfer.ToCustodianId is null
-                    ? LifecycleStage.InStore
-                    : LifecycleStage.Assigned;
-
-                // A transfer to a custodian opens a new custody period (no Issue behind it).
-                if (transfer.ToCustodianId is int custodianId)
-                {
-                    _db.AssetAssignments.Add(new AssetAssignment
-                    {
-                        AssetId = asset.Id,
-                        CustodianId = custodianId,
-                        DepartmentId = transfer.ToDepartmentId,
-                        LocationId = transfer.ToLocationId,
-                        AssignmentDate = arrivalDate,
-                        Status = RequestStatus.Approved,
-                        ApprovalId = transfer.ApprovalId,
-                        Notes = $"Opened by transfer #{transfer.Id}"
-                    });
-                }
+                    AssetId = asset.Id,
+                    CustodianId = custodianId,
+                    DepartmentId = transfer.ToDepartmentId,
+                    LocationId = transfer.ToLocationId,
+                    AssignmentDate = arrivalDate,
+                    Status = RequestStatus.Approved,
+                    ApprovalId = transfer.ApprovalId,
+                    Notes = $"Opened by transfer #{transfer.Id}"
+                });
             }
-
-            transfer.Status = Received;
-            transfer.ReceiveConfirmationDate = now;
-
-            await _db.SaveChangesAsync();
         }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+
+        transfer.Status = Received;
+        transfer.ReceiveConfirmationDate = now;
+
+        await db.SaveChangesAsync();
     }
 
     private async Task EnsureApproverAsync()
@@ -311,9 +299,9 @@ public class TransferService
         }
     }
 
-    private async Task<Transfer> LoadPendingAsync(int transferId)
+    private async Task<Transfer> LoadPendingAsync(ApplicationDbContext db, int transferId)
     {
-        var transfer = await _db.Transfers
+        var transfer = await db.Transfers
             .Include(t => t.Lines)
             .FirstOrDefaultAsync(t => t.Id == transferId && t.IsActive)
             ?? throw new InvalidOperationException("Transfer not found.");

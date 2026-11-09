@@ -22,12 +22,12 @@ public class AssetImportService
         "Purchase date", "Purchase cost", "Currency"
     };
 
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
     private readonly AssetService _assets;
 
-    public AssetImportService(ApplicationDbContext db, AssetService assets)
+    public AssetImportService(IDbContextFactory<ApplicationDbContext> dbFactory, AssetService assets)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _assets = assets;
     }
 
@@ -96,6 +96,8 @@ public class AssetImportService
     /// <summary>Reads and validates the file. Writes nothing.</summary>
     public async Task<ImportPreview> ReadAsync(Stream file, string fileName)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (!fileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
         {
             return ImportPreview.Failed("Upload an .xlsx file. Save the sheet as Excel Workbook first.");
@@ -133,7 +135,7 @@ public class AssetImportService
             return ImportPreview.Failed("The sheet has no rows under the header.");
         }
 
-        await ValidateAsync(rows);
+        await ValidateAsync(db, rows);
         return new ImportPreview(rows);
     }
 
@@ -164,7 +166,7 @@ public class AssetImportService
     /// currency, serial numbers repeated inside the file or already in the register, and
     /// a custodian that does not exist.
     /// </summary>
-    private async Task ValidateAsync(List<ImportRow> rows)
+    private async Task ValidateAsync(ApplicationDbContext db, List<ImportRow> rows)
     {
         var serials = rows
             .Where(r => !string.IsNullOrWhiteSpace(r.SerialNumber))
@@ -173,7 +175,7 @@ public class AssetImportService
 
         var takenSerials = serials.Count == 0
             ? new List<string>()
-            : await _db.Assets
+            : await db.Assets
                 .Where(a => a.SerialNumber != null && serials.Contains(a.SerialNumber))
                 .Select(a => a.SerialNumber!)
                 .ToListAsync();
@@ -185,7 +187,7 @@ public class AssetImportService
 
         var knownEmployees = employeeNumbers.Count == 0
             ? new List<string>()
-            : await _db.Employees
+            : await db.Employees
                 .Where(e => e.IsActive && employeeNumbers.Contains(e.EmployeeNumber))
                 .Select(e => e.EmployeeNumber)
                 .ToListAsync();
@@ -238,18 +240,20 @@ public class AssetImportService
     /// </summary>
     public async Task<ImportResult> ImportAsync(IReadOnlyList<ImportRow> rows)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         var valid = rows.Where(r => r.IsValid).ToList();
         var rejected = rows.Where(r => !r.IsValid).ToList();
         var created = new List<string>();
 
-        var categories = await LookupAsync<Category>();
-        var statuses = await LookupAsync<AssetStatus>();
-        var brands = await LookupAsync<Brand>();
-        var suppliers = await LookupAsync<Supplier>();
-        var locations = await LookupAsync<Location>();
-        var departments = await LookupAsync<Department>();
+        var categories = await LookupAsync<Category>(db);
+        var statuses = await LookupAsync<AssetStatus>(db);
+        var brands = await LookupAsync<Brand>(db);
+        var suppliers = await LookupAsync<Supplier>(db);
+        var locations = await LookupAsync<Location>(db);
+        var departments = await LookupAsync<Department>(db);
 
-        var employees = await _db.Employees
+        var employees = await db.Employees
             .AsNoTracking()
             .Where(e => e.IsActive)
             .ToDictionaryAsync(e => e.EmployeeNumber.Trim(), e => e.Id);
@@ -263,8 +267,8 @@ public class AssetImportService
                 var asset = new Asset
                 {
                     Name = row.Name!.Trim(),
-                    CategoryId = await EnsureAsync<Category>(categories, row.Category!, created, "Category"),
-                    StatusId = await EnsureAsync<AssetStatus>(statuses, row.Condition!, created, "Condition"),
+                    CategoryId = await EnsureAsync<Category>(db, categories, row.Category!, created, "Category"),
+                    StatusId = await EnsureAsync<AssetStatus>(db, statuses, row.Condition!, created, "Condition"),
                     Model = Clean(row.Model),
                     SerialNumber = Clean(row.SerialNumber),
                     PurchaseDate = row.PurchaseDate,
@@ -275,16 +279,16 @@ public class AssetImportService
                 };
 
                 if (!string.IsNullOrWhiteSpace(row.Brand))
-                    asset.BrandId = await EnsureAsync<Brand>(brands, row.Brand, created, "Brand");
+                    asset.BrandId = await EnsureAsync<Brand>(db, brands, row.Brand, created, "Brand");
 
                 if (!string.IsNullOrWhiteSpace(row.Supplier))
-                    asset.SupplierId = await EnsureAsync<Supplier>(suppliers, row.Supplier, created, "Supplier");
+                    asset.SupplierId = await EnsureAsync<Supplier>(db, suppliers, row.Supplier, created, "Supplier");
 
                 if (!string.IsNullOrWhiteSpace(row.Location))
-                    asset.LocationId = await EnsureAsync<Location>(locations, row.Location, created, "Location");
+                    asset.LocationId = await EnsureAsync<Location>(db, locations, row.Location, created, "Location");
 
                 if (!string.IsNullOrWhiteSpace(row.Department))
-                    asset.DepartmentId = await EnsureAsync<Department>(departments, row.Department, created, "Department");
+                    asset.DepartmentId = await EnsureAsync<Department>(db, departments, row.Department, created, "Department");
 
                 if (!string.IsNullOrWhiteSpace(row.CustodianEmployeeNumber)
                     && employees.TryGetValue(row.CustodianEmployeeNumber.Trim(), out var employeeId))
@@ -307,10 +311,10 @@ public class AssetImportService
         return new ImportResult(registered, created.Distinct().ToList(), rejected);
     }
 
-    private async Task<Dictionary<string, int>> LookupAsync<T>()
+    private async Task<Dictionary<string, int>> LookupAsync<T>(ApplicationDbContext db)
         where T : Domain.Common.BaseEntity, Domain.Common.INamedEntity
     {
-        var rows = await _db.Set<T>().AsNoTracking().ToListAsync();
+        var rows = await db.Set<T>().AsNoTracking().ToListAsync();
         var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in rows)
@@ -322,7 +326,7 @@ public class AssetImportService
     }
 
     /// <summary>The id of the lookup with this name, creating it when the sheet names a new one.</summary>
-    private async Task<int> EnsureAsync<T>(
+    private async Task<int> EnsureAsync<T>(ApplicationDbContext db,
         Dictionary<string, int> known, string name, List<string> created, string what)
         where T : Domain.Common.BaseEntity, Domain.Common.INamedEntity, new()
     {
@@ -335,14 +339,16 @@ public class AssetImportService
 
         var row = new T { Name = clean };
 
+        // The one place a Clear is still needed: this context lives for the whole import,
+        // and a row that failed to save would otherwise stay in it and fail every later save.
         try
         {
-            _db.Set<T>().Add(row);
-            await _db.SaveChangesAsync();
+            db.Set<T>().Add(row);
+            await db.SaveChangesAsync();
         }
         finally
         {
-            _db.ChangeTracker.Clear();
+            db.ChangeTracker.Clear();
         }
 
         known[clean] = row.Id;

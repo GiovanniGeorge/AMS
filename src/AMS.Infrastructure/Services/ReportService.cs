@@ -9,11 +9,11 @@ namespace AMS.Infrastructure.Services;
 /// <summary>Reports read the database and change nothing.</summary>
 public class ReportService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public ReportService(ApplicationDbContext db)
+    public ReportService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     /// <summary>
@@ -22,6 +22,8 @@ public class ReportService
     /// </summary>
     public async Task<PurchaseReport> GetPurchasesAsync(DateTime from, DateTime to)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         // Both ends are inclusive: a purchase stamped at 14:30 on the "to" day still counts.
         var start = from.Date;
         var end = to.Date.AddDays(1).AddTicks(-1);
@@ -34,8 +36,8 @@ public class ReportService
         return new PurchaseReport(
             start,
             to.Date,
-            await PurchasedAssetsAsync(start, end),
-            await PurchasedItemsAsync(start, end));
+            await PurchasedAssetsAsync(db, start, end),
+            await PurchasedItemsAsync(db, start, end));
     }
 
     /// <summary>
@@ -44,9 +46,9 @@ public class ReportService
     /// entered without a date would never appear in any report at all.
     /// An asset counts as used once it has one approved custody; the first of those is its first use.
     /// </summary>
-    private async Task<List<PurchasedAsset>> PurchasedAssetsAsync(DateTime start, DateTime end)
+    private async Task<List<PurchasedAsset>> PurchasedAssetsAsync(ApplicationDbContext db, DateTime start, DateTime end)
     {
-        var assets = await _db.Assets
+        var assets = await db.Assets
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.Supplier)
@@ -67,7 +69,7 @@ public class ReportService
 
         // First approved custody per asset, whenever it happened - an asset bought in March
         // and first issued in July is still "used", just late.
-        var firstUse = await _db.AssetAssignments
+        var firstUse = await db.AssetAssignments
             .AsNoTracking()
             .Where(a => a.IsActive
                         && a.Status == RequestStatus.Approved
@@ -110,10 +112,10 @@ public class ReportService
     /// same period. Stock is not tracked batch by batch, so the two numbers are a
     /// comparison over the period, not a trace of one delivery.
     /// </summary>
-    private async Task<List<PurchasedItem>> PurchasedItemsAsync(DateTime start, DateTime end)
+    private async Task<List<PurchasedItem>> PurchasedItemsAsync(ApplicationDbContext db, DateTime start, DateTime end)
     {
         // The Select below names every column that is read, so no Include is needed.
-        var received = await _db.ReceiveLines
+        var received = await db.ReceiveLines
             .AsNoTracking()
             .Where(l => l.IsActive
                         && l.ItemId != null
@@ -144,7 +146,7 @@ public class ReportService
 
         var ids = received.Select(r => r.ItemId).ToList();
 
-        var consumed = await _db.StockAdjustments
+        var consumed = await db.StockAdjustments
             .AsNoTracking()
             .Where(s => s.IsActive
                         && s.ItemId != null

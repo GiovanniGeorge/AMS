@@ -14,16 +14,18 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class StockService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public StockService(ApplicationDbContext db)
+    public StockService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<List<StockBalance>> GetBalancesAsync()
     {
-        return await _db.StockBalances
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.StockBalances
             .AsNoTracking()
             .Include(b => b.Store)
             .Include(b => b.Item!).ThenInclude(i => i.UnitOfMeasure)
@@ -35,7 +37,9 @@ public class StockService
 
     public async Task<Paged<StockAdjustment>> GetAdjustmentsAsync(int page = 1)
     {
-        var query = _db.StockAdjustments
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = db.StockAdjustments
             .AsNoTracking()
             .Include(a => a.Store)
             .Include(a => a.Item)
@@ -54,7 +58,9 @@ public class StockService
     /// <summary>The current quantity of one item in one store (0 when there is no row yet).</summary>
     public async Task<decimal> GetQuantityAsync(int storeId, int itemId)
     {
-        return await _db.StockBalances
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.StockBalances
             .AsNoTracking()
             .Where(b => b.IsActive && b.StoreId == storeId && b.ItemId == itemId)
             .Select(b => b.Quantity)
@@ -64,6 +70,8 @@ public class StockService
     /// <summary>Applies the adjustment at once and moves the balance. Stock cannot go below zero.</summary>
     public async Task<int> AdjustAsync(StockAdjustmentInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (input.Quantity <= 0)
         {
             throw new InvalidOperationException("The quantity must be greater than zero.");
@@ -79,53 +87,46 @@ public class StockService
             throw new InvalidOperationException("The direction must be Increase or Decrease.");
         }
 
-        try
+        var signed = input.Direction == StockDirection.Increase ? input.Quantity : -input.Quantity;
+
+        var balance = await db.StockBalances
+            .FirstOrDefaultAsync(b => b.StoreId == input.StoreId && b.ItemId == input.ItemId);
+
+        var current = balance?.Quantity ?? 0m;
+        if (current + signed < 0)
         {
-            var signed = input.Direction == StockDirection.Increase ? input.Quantity : -input.Quantity;
+            throw new InvalidOperationException(
+                $"There is not enough stock: the store holds {current:N2} of this item.");
+        }
 
-            var balance = await _db.StockBalances
-                .FirstOrDefaultAsync(b => b.StoreId == input.StoreId && b.ItemId == input.ItemId);
-
-            var current = balance?.Quantity ?? 0m;
-            if (current + signed < 0)
-            {
-                throw new InvalidOperationException(
-                    $"There is not enough stock: the store holds {current:N2} of this item.");
-            }
-
-            if (balance is null)
-            {
-                _db.StockBalances.Add(new StockBalance
-                {
-                    StoreId = input.StoreId,
-                    ItemId = input.ItemId,
-                    Quantity = signed
-                });
-            }
-            else
-            {
-                balance.Quantity = current + signed;
-                balance.IsActive = true;
-            }
-
-            var adjustment = new StockAdjustment
+        if (balance is null)
+        {
+            db.StockBalances.Add(new StockBalance
             {
                 StoreId = input.StoreId,
                 ItemId = input.ItemId,
-                Quantity = signed,
-                AdjustmentType = input.Direction,
-                Reason = input.Reason.Trim(),
-                Date = input.Date,
-                Status = "Applied"
-            };
-
-            _db.StockAdjustments.Add(adjustment);
-            await _db.SaveChangesAsync();
-            return adjustment.Id;
+                Quantity = signed
+            });
         }
-        finally
+        else
         {
-            _db.ChangeTracker.Clear();
+            balance.Quantity = current + signed;
+            balance.IsActive = true;
         }
+
+        var adjustment = new StockAdjustment
+        {
+            StoreId = input.StoreId,
+            ItemId = input.ItemId,
+            Quantity = signed,
+            AdjustmentType = input.Direction,
+            Reason = input.Reason.Trim(),
+            Date = input.Date,
+            Status = "Applied"
+        };
+
+        db.StockAdjustments.Add(adjustment);
+        await db.SaveChangesAsync();
+        return adjustment.Id;
     }
 }

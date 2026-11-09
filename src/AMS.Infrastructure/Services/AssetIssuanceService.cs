@@ -15,12 +15,12 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class AssetIssuanceService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
     private readonly ICurrentUserService _currentUser;
 
-    public AssetIssuanceService(ApplicationDbContext db, ICurrentUserService currentUser)
+    public AssetIssuanceService(IDbContextFactory<ApplicationDbContext> dbFactory, ICurrentUserService currentUser)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _currentUser = currentUser;
     }
 
@@ -28,8 +28,8 @@ public class AssetIssuanceService
     // Reading
     // ------------------------------------------------------------------
 
-    private IQueryable<AssetAssignment> Issuances() =>
-        _db.AssetAssignments
+    private IQueryable<AssetAssignment> Issuances(ApplicationDbContext db) =>
+        db.AssetAssignments
             .AsNoTracking()
             .Include(a => a.Asset)
             .Include(a => a.Custodian)
@@ -42,7 +42,9 @@ public class AssetIssuanceService
     /// <summary>All issuance requests, newest first. <paramref name="status"/> null = all.</summary>
     public async Task<Paged<AssetAssignment>> GetAllAsync(string? status = null, int page = 1)
     {
-        var query = Issuances();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = Issuances(db);
 
         if (!string.IsNullOrEmpty(status))
         {
@@ -62,7 +64,9 @@ public class AssetIssuanceService
     /// <summary>Requests waiting for the approver.</summary>
     public async Task<List<AssetAssignment>> GetPendingAsync()
     {
-        return await Issuances()
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await Issuances(db)
             .Where(a => a.Status == RequestStatus.Pending)
             .OrderBy(a => a.Id)
             .ToListAsync();
@@ -71,13 +75,15 @@ public class AssetIssuanceService
     /// <summary>The logged-in user's own rejected requests, with the rejection reason.</summary>
     public async Task<List<AssetAssignment>> GetMyRejectedAsync()
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         var userId = await _currentUser.GetUserIdAsync();
         if (userId is null)
         {
             return new List<AssetAssignment>();
         }
 
-        return await Issuances()
+        return await Issuances(db)
             .Where(a => a.Status == RequestStatus.Rejected && a.CreatedById == userId)
             .OrderByDescending(a => a.Id)
             .ToListAsync();
@@ -86,10 +92,12 @@ public class AssetIssuanceService
     /// <summary>Assets that can be issued: active, In store, and without a pending request.</summary>
     public async Task<List<Asset>> GetIssuableAssetsAsync()
     {
-        // Not just a pending issuance: an asset inside a transfer or a disposal is busy too.
-        var busy = PendingRequests.AssetIds(_db);
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
-        return await _db.Assets
+        // Not just a pending issuance: an asset inside a transfer or a disposal is busy too.
+        var busy = PendingRequests.AssetIds(db);
+
+        return await db.Assets
             .AsNoTracking()
             .Where(a => a.IsActive
                         && a.LifecycleStage == LifecycleStage.InStore
@@ -105,7 +113,9 @@ public class AssetIssuanceService
     /// <summary>Creates the Issue + AssetAssignment pair. Returns the assignment Id.</summary>
     public async Task<int> CreateAsync(IssuanceRequest request)
     {
-        var asset = await _db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == request.AssetId)
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var asset = await db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == request.AssetId)
                     ?? throw new InvalidOperationException("Asset not found.");
 
         if (!asset.IsActive || asset.LifecycleStage != LifecycleStage.InStore)
@@ -113,16 +123,16 @@ public class AssetIssuanceService
             throw new InvalidOperationException("Only an active asset that is In store can be issued.");
         }
 
-        var hasPending = await _db.AssetAssignments
+        var hasPending = await db.AssetAssignments
             .AnyAsync(a => a.IsActive && a.AssetId == request.AssetId && a.Status == RequestStatus.Pending);
         if (hasPending)
         {
             throw new InvalidOperationException("This asset already has a request waiting for approval.");
         }
 
-        await PendingRequests.EnsureFreeAsync(_db, request.AssetId);
+        await PendingRequests.EnsureFreeAsync(db, request.AssetId);
 
-        var employee = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == request.EmployeeId && e.IsActive)
+        var employee = await db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == request.EmployeeId && e.IsActive)
                        ?? throw new InvalidOperationException("Employee not found.");
 
         var issue = new Issue
@@ -146,16 +156,9 @@ public class AssetIssuanceService
             Issue = issue
         };
 
-        try
-        {
-            _db.AssetAssignments.Add(assignment); // the Issue is saved with it
-            await _db.SaveChangesAsync();
-            return assignment.Id;
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        db.AssetAssignments.Add(assignment); // the Issue is saved with it
+        await db.SaveChangesAsync();
+        return assignment.Id;
     }
 
     /// <summary>
@@ -165,64 +168,59 @@ public class AssetIssuanceService
     /// </summary>
     public async Task<int> CreateApprovedAsync(IssuanceRequest request)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         // Only the administrator may move custody. A direct assignment skips the waiting
         // step, not the permission check.
         await EnsureApproverAsync();
 
-        try
+        // Tracked: this asset is updated below in the same SaveChanges.
+        var asset = await db.Assets.FirstOrDefaultAsync(a => a.Id == request.AssetId)
+                    ?? throw new InvalidOperationException("Asset not found.");
+
+        if (!asset.IsActive || asset.LifecycleStage != LifecycleStage.InStore)
         {
-            // Tracked: this asset is updated below in the same SaveChanges.
-            var asset = await _db.Assets.FirstOrDefaultAsync(a => a.Id == request.AssetId)
-                        ?? throw new InvalidOperationException("Asset not found.");
-
-            if (!asset.IsActive || asset.LifecycleStage != LifecycleStage.InStore)
-            {
-                throw new InvalidOperationException("Only an active asset that is In store can be issued.");
-            }
-
-            await PendingRequests.EnsureFreeAsync(_db, request.AssetId);
-
-            var employee = await _db.Employees.AsNoTracking()
-                               .FirstOrDefaultAsync(e => e.Id == request.EmployeeId && e.IsActive)
-                           ?? throw new InvalidOperationException("Employee not found.");
-
-            var issue = new Issue
-            {
-                Date = request.Date,
-                AssetId = request.AssetId,
-                EmployeeId = request.EmployeeId,
-                StoreId = request.StoreId,
-                Status = RequestStatus.Approved
-            };
-
-            var assignment = new AssetAssignment
-            {
-                AssetId = request.AssetId,
-                CustodianId = request.EmployeeId,
-                DepartmentId = request.DepartmentId ?? employee.DepartmentId,
-                LocationId = request.LocationId,
-                AssignmentDate = request.Date,
-                Status = RequestStatus.Approved,
-                Notes = request.Notes,
-                Issue = issue,
-                Approval = await NewApprovalAsync(RequestStatus.Approved,
-                    "Assigned directly by the administrator.")
-            };
-
-            // Same effect as an approval, so the asset takes the custody immediately.
-            asset.CustodianId = assignment.CustodianId;
-            asset.DepartmentId = assignment.DepartmentId;
-            asset.LocationId = assignment.LocationId;
-            asset.LifecycleStage = LifecycleStage.Assigned;
-
-            _db.AssetAssignments.Add(assignment);
-            await _db.SaveChangesAsync();
-            return assignment.Id;
+            throw new InvalidOperationException("Only an active asset that is In store can be issued.");
         }
-        finally
+
+        await PendingRequests.EnsureFreeAsync(db, request.AssetId);
+
+        var employee = await db.Employees.AsNoTracking()
+                           .FirstOrDefaultAsync(e => e.Id == request.EmployeeId && e.IsActive)
+                       ?? throw new InvalidOperationException("Employee not found.");
+
+        var issue = new Issue
         {
-            _db.ChangeTracker.Clear();
-        }
+            Date = request.Date,
+            AssetId = request.AssetId,
+            EmployeeId = request.EmployeeId,
+            StoreId = request.StoreId,
+            Status = RequestStatus.Approved
+        };
+
+        var assignment = new AssetAssignment
+        {
+            AssetId = request.AssetId,
+            CustodianId = request.EmployeeId,
+            DepartmentId = request.DepartmentId ?? employee.DepartmentId,
+            LocationId = request.LocationId,
+            AssignmentDate = request.Date,
+            Status = RequestStatus.Approved,
+            Notes = request.Notes,
+            Issue = issue,
+            Approval = await NewApprovalAsync(RequestStatus.Approved,
+                "Assigned directly by the administrator.")
+        };
+
+        // Same effect as an approval, so the asset takes the custody immediately.
+        asset.CustodianId = assignment.CustodianId;
+        asset.DepartmentId = assignment.DepartmentId;
+        asset.LocationId = assignment.LocationId;
+        asset.LifecycleStage = LifecycleStage.Assigned;
+
+        db.AssetAssignments.Add(assignment);
+        await db.SaveChangesAsync();
+        return assignment.Id;
     }
 
     // ------------------------------------------------------------------
@@ -232,40 +230,37 @@ public class AssetIssuanceService
     /// <summary>Approver only. The asset takes the custodian, department and location and becomes Assigned.</summary>
     public async Task ApproveAsync(int assignmentId)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         await EnsureApproverAsync();
 
-        try
+        var assignment = await LoadPendingAsync(db, assignmentId);
+        var asset = assignment.Asset!;
+
+        // Checked again: the asset may have changed since the request was made.
+        if (!asset.IsActive || asset.LifecycleStage != LifecycleStage.InStore)
         {
-            var assignment = await LoadPendingAsync(assignmentId);
-            var asset = assignment.Asset!;
-
-            // Checked again: the asset may have changed since the request was made.
-            if (!asset.IsActive || asset.LifecycleStage != LifecycleStage.InStore)
-            {
-                throw new InvalidOperationException("The asset is no longer In store, so it cannot be issued.");
-            }
-
-            assignment.Approval = await NewApprovalAsync(RequestStatus.Approved, comments: null);
-            assignment.Status = RequestStatus.Approved;
-            assignment.Issue!.Status = RequestStatus.Approved;
-
-            // The approved custody becomes the asset's current custody.
-            asset.CustodianId = assignment.CustodianId;
-            asset.DepartmentId = assignment.DepartmentId;
-            asset.LocationId = assignment.LocationId;
-            asset.LifecycleStage = LifecycleStage.Assigned;
-
-            await _db.SaveChangesAsync();
+            throw new InvalidOperationException("The asset is no longer In store, so it cannot be issued.");
         }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+
+        assignment.Approval = await NewApprovalAsync(RequestStatus.Approved, comments: null);
+        assignment.Status = RequestStatus.Approved;
+        assignment.Issue!.Status = RequestStatus.Approved;
+
+        // The approved custody becomes the asset's current custody.
+        asset.CustodianId = assignment.CustodianId;
+        asset.DepartmentId = assignment.DepartmentId;
+        asset.LocationId = assignment.LocationId;
+        asset.LifecycleStage = LifecycleStage.Assigned;
+
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Approver only. The reason is required; the asset does not change.</summary>
     public async Task RejectAsync(int assignmentId, string reason)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         await EnsureApproverAsync();
 
         if (string.IsNullOrWhiteSpace(reason))
@@ -273,20 +268,13 @@ public class AssetIssuanceService
             throw new InvalidOperationException("A rejection reason is required.");
         }
 
-        try
-        {
-            var assignment = await LoadPendingAsync(assignmentId);
+        var assignment = await LoadPendingAsync(db, assignmentId);
 
-            assignment.Approval = await NewApprovalAsync(RequestStatus.Rejected, reason.Trim());
-            assignment.Status = RequestStatus.Rejected;
-            assignment.Issue!.Status = RequestStatus.Rejected;
+        assignment.Approval = await NewApprovalAsync(RequestStatus.Rejected, reason.Trim());
+        assignment.Status = RequestStatus.Rejected;
+        assignment.Issue!.Status = RequestStatus.Rejected;
 
-            await _db.SaveChangesAsync();
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        await db.SaveChangesAsync();
     }
 
     private async Task EnsureApproverAsync()
@@ -297,9 +285,9 @@ public class AssetIssuanceService
         }
     }
 
-    private async Task<AssetAssignment> LoadPendingAsync(int assignmentId)
+    private async Task<AssetAssignment> LoadPendingAsync(ApplicationDbContext db, int assignmentId)
     {
-        var assignment = await _db.AssetAssignments
+        var assignment = await db.AssetAssignments
             .Include(a => a.Asset)
             .Include(a => a.Issue)
             .FirstOrDefaultAsync(a => a.Id == assignmentId && a.IsActive)

@@ -17,11 +17,11 @@ public class AssetService
     /// <summary>Used when the asset's category has no numbering prefix of its own.</summary>
     private const string DefaultPrefix = "AST";
 
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public AssetService(ApplicationDbContext db)
+    public AssetService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     // ------------------------------------------------------------------
@@ -30,7 +30,9 @@ public class AssetService
 
     public async Task<AssetPage> SearchAsync(AssetFilter filter)
     {
-        IQueryable<Asset> query = _db.Assets
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        IQueryable<Asset> query = db.Assets
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.Status)
@@ -91,7 +93,9 @@ public class AssetService
     /// <summary>One asset with all its lookups (category, status, location, custodian, ...).</summary>
     public async Task<Asset?> GetDetailsAsync(int id)
     {
-        return await _db.Assets
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Assets
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.Brand)
@@ -107,7 +111,9 @@ public class AssetService
     /// <summary>Active assets whose ParentAssetId is <paramref name="parentId"/>.</summary>
     public async Task<List<Asset>> GetComponentsAsync(int parentId)
     {
-        return await _db.Assets
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Assets
             .AsNoTracking()
             .Include(a => a.Category)
             .Where(a => a.ParentAssetId == parentId && a.IsActive)
@@ -118,10 +124,12 @@ public class AssetService
     /// <summary>Registration plus every active transaction that touched the asset, oldest first.</summary>
     public async Task<List<AssetHistoryEntry>> GetHistoryAsync(int assetId)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         var history = new List<AssetHistoryEntry>();
 
         // 1. Registration
-        var asset = await _db.Assets.AsNoTracking()
+        var asset = await db.Assets.AsNoTracking()
             .Where(a => a.Id == assetId)
             .Select(a => new { a.AssetNumber, a.CreatedOn, a.CreatedById })
             .FirstOrDefaultAsync();
@@ -135,7 +143,7 @@ public class AssetService
             $"Asset {asset.AssetNumber} registered", asset.CreatedById));
 
         // 2. Received
-        var receives = await _db.ReceiveLines.AsNoTracking()
+        var receives = await db.ReceiveLines.AsNoTracking()
             .Where(l => l.AssetId == assetId && l.IsActive)
             .Select(l => new
             {
@@ -152,7 +160,7 @@ public class AssetService
 
         // 3. Issued / assigned. An issuance is stored as an Issue + the AssetAssignment it opened,
         //    shown here as ONE line. Rejected requests stay visible with their reason.
-        var assignments = await _db.AssetAssignments.AsNoTracking()
+        var assignments = await db.AssetAssignments.AsNoTracking()
             .Where(x => x.AssetId == assetId && x.IsActive)
             .Select(x => new
             {
@@ -177,8 +185,8 @@ public class AssetService
             x.CreatedById)));
 
         // 4. An Issue without an assignment should not exist; listed only as a safety net.
-        var issues = await _db.Issues.AsNoTracking()
-            .Where(x => x.AssetId == assetId && x.IsActive && !_db.AssetAssignments.Any(a => a.IssueId == x.Id))
+        var issues = await db.Issues.AsNoTracking()
+            .Where(x => x.AssetId == assetId && x.IsActive && !db.AssetAssignments.Any(a => a.IssueId == x.Id))
             .Select(x => new
             {
                 Date = x.Date ?? x.CreatedOn,
@@ -193,7 +201,7 @@ public class AssetService
             x.CreatedById)));
 
         // 5. Returned
-        var returns = await _db.Returns.AsNoTracking()
+        var returns = await db.Returns.AsNoTracking()
             .Where(x => x.AssetId == assetId && x.IsActive)
             .Select(x => new
             {
@@ -212,7 +220,7 @@ public class AssetService
             x.CreatedById)));
 
         // 6. Transferred
-        var transfers = await _db.TransferLines.AsNoTracking()
+        var transfers = await db.TransferLines.AsNoTracking()
             .Where(l => l.AssetId == assetId && l.IsActive)
             .Select(l => new
             {
@@ -230,7 +238,7 @@ public class AssetService
             x.CreatedById)));
 
         // 7. Incidents
-        var incidents = await _db.Incidents.AsNoTracking()
+        var incidents = await db.Incidents.AsNoTracking()
             .Where(x => x.AssetId == assetId && x.IsActive)
             .Select(x => new
             {
@@ -248,7 +256,7 @@ public class AssetService
             x.CreatedById)));
 
         // 8. Maintenance
-        var workOrders = await _db.WorkOrders.AsNoTracking()
+        var workOrders = await db.WorkOrders.AsNoTracking()
             .Where(x => x.AssetId == assetId && x.IsActive)
             .Select(x => new { Date = x.StartDate ?? x.CreatedOn, x.MaintenanceType, x.Problem, x.Status, x.CreatedById })
             .ToListAsync();
@@ -256,7 +264,7 @@ public class AssetService
             Join(x.MaintenanceType?.ToString(), x.Problem, x.Status), x.CreatedById)));
 
         // 9. Revaluation
-        var revaluations = await _db.RevaluationEvents.AsNoTracking()
+        var revaluations = await db.RevaluationEvents.AsNoTracking()
             .Where(x => x.AssetId == assetId && x.IsActive)
             .Select(x => new { Date = x.Date ?? x.CreatedOn, x.OldValue, x.NewValue, x.Reason, x.Status, x.CreatedById })
             .ToListAsync();
@@ -264,7 +272,7 @@ public class AssetService
             Join($"{x.OldValue:N2} → {x.NewValue:N2}", x.Reason, x.Status), x.CreatedById)));
 
         // 10. Depreciation
-        var depreciation = await _db.DepreciationEntries.AsNoTracking()
+        var depreciation = await db.DepreciationEntries.AsNoTracking()
             .Where(x => x.AssetId == assetId && x.IsActive)
             .Select(x => new { x.PeriodDate, x.Amount, x.NetBookValue, x.CreatedById })
             .ToListAsync();
@@ -272,7 +280,7 @@ public class AssetService
             $"{x.Amount:N2} · book value {x.NetBookValue:N2}", x.CreatedById)));
 
         // 11. Disposal
-        var disposals = await _db.DisposalRequestLines.AsNoTracking()
+        var disposals = await db.DisposalRequestLines.AsNoTracking()
             .Where(l => l.AssetId == assetId && l.IsActive)
             .Select(l => new
             {
@@ -293,8 +301,12 @@ public class AssetService
     // ------------------------------------------------------------------
 
     /// <summary>The number the next asset of this category would get.</summary>
-    public async Task<string?> PreviewNextNumberAsync(int categoryId) =>
-        await NextNumberAsync(await GetPrefixAsync(categoryId));
+    public async Task<string?> PreviewNextNumberAsync(int categoryId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await NextNumberAsync(db, await GetPrefixAsync(db, categoryId));
+    }
 
     /// <summary>
     /// The category's own prefix, or AST when it has none. Every asset gets a number
@@ -302,9 +314,9 @@ public class AssetService
     /// under a category nobody had given a prefix to, and that is not the user's problem.
     /// An externally issued number belongs in Legacy asset number.
     /// </summary>
-    private async Task<string> GetPrefixAsync(int categoryId)
+    private async Task<string> GetPrefixAsync(ApplicationDbContext db, int categoryId)
     {
-        var prefix = await _db.Categories
+        var prefix = await db.Categories
             .Where(c => c.Id == categoryId)
             .Select(c => c.NumberingPrefix)
             .FirstOrDefaultAsync();
@@ -320,11 +332,11 @@ public class AssetService
     /// If two users register at the same instant, the unique index on AssetNumber
     /// rejects the second save and that user simply saves again.
     /// </summary>
-    private async Task<string> NextNumberAsync(string prefix)
+    private async Task<string> NextNumberAsync(ApplicationDbContext db, string prefix)
     {
         var start = prefix + "-";
 
-        var existing = await _db.Assets
+        var existing = await db.Assets
             .Where(a => a.AssetNumber.StartsWith(start))
             .Select(a => a.AssetNumber)
             .ToListAsync();
@@ -351,20 +363,15 @@ public class AssetService
     /// </summary>
     public async Task<int> RegisterAsync(Asset asset)
     {
-        asset.AssetNumber = await NextNumberAsync(await GetPrefixAsync(asset.CategoryId));
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        asset.AssetNumber = await NextNumberAsync(db, await GetPrefixAsync(db, asset.CategoryId));
         asset.LifecycleStage = asset.CustodianId is null ? LifecycleStage.InStore : LifecycleStage.Assigned;
         asset.IsActive = true;
 
-        try
-        {
-            _db.Assets.Add(asset);
-            await _db.SaveChangesAsync();
-            return asset.Id;
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        db.Assets.Add(asset);
+        await db.SaveChangesAsync();
+        return asset.Id;
     }
 
     /// <summary>
@@ -373,12 +380,14 @@ public class AssetService
     /// </summary>
     public async Task UpdateDetailsAsync(Asset asset)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (asset.ParentAssetId == asset.Id)
         {
             throw new InvalidOperationException("An asset cannot be a component of itself.");
         }
 
-        var existing = await _db.Assets.FirstOrDefaultAsync(a => a.Id == asset.Id)
+        var existing = await db.Assets.FirstOrDefaultAsync(a => a.Id == asset.Id)
                        ?? throw new InvalidOperationException("Asset not found.");
 
         // Editable fields - listed one by one on purpose, so it is obvious what can change.
@@ -409,14 +418,7 @@ public class AssetService
         existing.InsuranceExpiryDate = asset.InsuranceExpiryDate;
         existing.Notes = asset.Notes;
 
-        try
-        {
-            await _db.SaveChangesAsync();
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        await db.SaveChangesAsync();
     }
 
     // ------------------------------------------------------------------

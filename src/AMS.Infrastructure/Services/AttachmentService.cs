@@ -15,20 +15,22 @@ public class AttachmentService
     /// <summary>The largest file AMS accepts, in bytes (5 MB).</summary>
     public const int MaxBytes = 5 * 1024 * 1024;
 
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
     private readonly ICurrentUserService _currentUser;
 
-    public AttachmentService(ApplicationDbContext db, ICurrentUserService currentUser)
+    public AttachmentService(IDbContextFactory<ApplicationDbContext> dbFactory, ICurrentUserService currentUser)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _currentUser = currentUser;
     }
 
     /// <summary>The attachments of one record, without their bytes, so the list stays light.</summary>
     public async Task<List<AttachmentInfo>> GetForAsync(string relatedEntityType, int relatedEntityId)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         // The bytes are left out on purpose: a list of ten photos should not pull ten files.
-        return await _db.Attachments
+        return await db.Attachments
             .AsNoTracking()
             .Where(a => a.IsActive
                         && a.RelatedEntityType == relatedEntityType
@@ -48,11 +50,15 @@ public class AttachmentService
     /// <summary>One attachment with its bytes, for downloading.</summary>
     public async Task<Attachment?> GetWithContentAsync(int id)
     {
-        return await _db.Attachments.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id && a.IsActive);
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Attachments.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id && a.IsActive);
     }
 
     public async Task<int> AddAsync(AttachmentInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (input.Content.Length == 0)
         {
             throw new InvalidOperationException("The file is empty.");
@@ -68,48 +74,36 @@ public class AttachmentService
             throw new InvalidOperationException("The file has no name.");
         }
 
-        try
+        var attachment = new Attachment
         {
-            var attachment = new Attachment
-            {
-                RelatedEntityType = input.RelatedEntityType,
-                RelatedEntityId = input.RelatedEntityId,
-                FileName = input.FileName,
-                FileType = input.FileType,
-                DocumentType = input.DocumentType,
-                FileSize = input.Content.Length,
-                Content = input.Content,
-                UploadedById = await _currentUser.GetUserIdAsync(),
-                UploadedOn = DateTime.UtcNow
-            };
+            RelatedEntityType = input.RelatedEntityType,
+            RelatedEntityId = input.RelatedEntityId,
+            FileName = input.FileName,
+            FileType = input.FileType,
+            DocumentType = input.DocumentType,
+            FileSize = input.Content.Length,
+            Content = input.Content,
+            UploadedById = await _currentUser.GetUserIdAsync(),
+            UploadedOn = DateTime.UtcNow
+        };
 
-            _db.Attachments.Add(attachment);
-            await _db.SaveChangesAsync();
-            return attachment.Id;
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        db.Attachments.Add(attachment);
+        await db.SaveChangesAsync();
+        return attachment.Id;
     }
 
     /// <summary>Soft delete, like everything else in AMS.</summary>
     public async Task DeactivateAsync(int id)
     {
-        try
-        {
-            var attachment = await _db.Attachments.FirstOrDefaultAsync(a => a.Id == id);
-            if (attachment is null)
-            {
-                return;
-            }
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
-            attachment.IsActive = false;
-            await _db.SaveChangesAsync();
-        }
-        finally
+        var attachment = await db.Attachments.FirstOrDefaultAsync(a => a.Id == id);
+        if (attachment is null)
         {
-            _db.ChangeTracker.Clear();
+            return;
         }
+
+        attachment.IsActive = false;
+        await db.SaveChangesAsync();
     }
 }

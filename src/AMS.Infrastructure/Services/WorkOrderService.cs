@@ -14,16 +14,18 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class WorkOrderService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public WorkOrderService(ApplicationDbContext db)
+    public WorkOrderService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<Paged<WorkOrder>> GetAllAsync(string? status = null, int page = 1)
     {
-        var query = _db.WorkOrders
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = db.WorkOrders
             .AsNoTracking()
             .Include(w => w.Asset)
             .Include(w => w.Technician)
@@ -50,7 +52,9 @@ public class WorkOrderService
     /// <summary>Assets a work order can be opened for: active, not disposed, not already in maintenance or in transit.</summary>
     public async Task<List<Asset>> GetMaintainableAssetsAsync()
     {
-        return await _db.Assets
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Assets
             .AsNoTracking()
             .Where(a => a.IsActive
                         && a.LifecycleStage != LifecycleStage.Disposed
@@ -66,95 +70,85 @@ public class WorkOrderService
     /// </summary>
     public async Task<int> CreateAsync(WorkOrderInput input, int? incidentId = null, int? planId = null)
     {
-        try
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var asset = await db.Assets.FirstOrDefaultAsync(a => a.Id == input.AssetId)
+                    ?? throw new InvalidOperationException("Asset not found.");
+
+        if (!asset.IsActive || asset.LifecycleStage == LifecycleStage.Disposed)
         {
-            var asset = await _db.Assets.FirstOrDefaultAsync(a => a.Id == input.AssetId)
-                        ?? throw new InvalidOperationException("Asset not found.");
-
-            if (!asset.IsActive || asset.LifecycleStage == LifecycleStage.Disposed)
-            {
-                throw new InvalidOperationException("A disposed or inactive asset cannot go into maintenance.");
-            }
-
-            if (asset.LifecycleStage == LifecycleStage.InTransit)
-            {
-                throw new InvalidOperationException("The asset is in transit; confirm its receipt first.");
-            }
-
-            var workOrder = new WorkOrder
-            {
-                AssetId = input.AssetId,
-                MaintenanceType = input.MaintenanceType,
-                Problem = input.Problem,
-                TechnicianId = input.TechnicianId,
-                VendorId = input.VendorId,
-                StartDate = input.StartDate,
-                Status = WorkOrderStatus.Open,
-                IncidentId = incidentId,
-                PreventiveMaintenancePlanId = planId
-            };
-
-            _db.WorkOrders.Add(workOrder);
-            asset.LifecycleStage = LifecycleStage.UnderMaintenance;
-
-            await _db.SaveChangesAsync();
-            return workOrder.Id;
+            throw new InvalidOperationException("A disposed or inactive asset cannot go into maintenance.");
         }
-        finally
+
+        if (asset.LifecycleStage == LifecycleStage.InTransit)
         {
-            _db.ChangeTracker.Clear();
+            throw new InvalidOperationException("The asset is in transit; confirm its receipt first.");
         }
+
+        var workOrder = new WorkOrder
+        {
+            AssetId = input.AssetId,
+            MaintenanceType = input.MaintenanceType,
+            Problem = input.Problem,
+            TechnicianId = input.TechnicianId,
+            VendorId = input.VendorId,
+            StartDate = input.StartDate,
+            Status = WorkOrderStatus.Open,
+            IncidentId = incidentId,
+            PreventiveMaintenancePlanId = planId
+        };
+
+        db.WorkOrders.Add(workOrder);
+        asset.LifecycleStage = LifecycleStage.UnderMaintenance;
+
+        await db.SaveChangesAsync();
+        return workOrder.Id;
     }
 
     /// <summary>Closes the work order: the asset returns In store and its custodian is cleared.</summary>
     public async Task CloseAsync(WorkOrderClosure closure)
     {
-        try
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var workOrder = await db.WorkOrders
+            .FirstOrDefaultAsync(w => w.Id == closure.WorkOrderId && w.IsActive)
+            ?? throw new InvalidOperationException("Work order not found.");
+
+        if (workOrder.Status == WorkOrderStatus.Closed)
         {
-            var workOrder = await _db.WorkOrders
-                .FirstOrDefaultAsync(w => w.Id == closure.WorkOrderId && w.IsActive)
-                ?? throw new InvalidOperationException("Work order not found.");
+            throw new InvalidOperationException("This work order is already closed.");
+        }
 
-            if (workOrder.Status == WorkOrderStatus.Closed)
+        workOrder.WorkDone = closure.WorkDone;
+        workOrder.PartsUsed = closure.PartsUsed;
+        workOrder.Cost = closure.Cost;
+        workOrder.Downtime = closure.Downtime;
+        workOrder.EndDate = closure.EndDate;
+        workOrder.Status = WorkOrderStatus.Closed;
+
+        // The asset comes back from the workshop into the store, with no custodian.
+        if (workOrder.AssetId is int assetId)
+        {
+            var asset = await db.Assets.FirstOrDefaultAsync(a => a.Id == assetId);
+            if (asset is not null && asset.LifecycleStage == LifecycleStage.UnderMaintenance)
             {
-                throw new InvalidOperationException("This work order is already closed.");
-            }
+                var openCustody = await db.AssetAssignments
+                    .Where(a => a.IsActive && a.AssetId == assetId && a.ReturnDate == null
+                                && a.Status == RequestStatus.Approved)
+                    .OrderByDescending(a => a.Id)
+                    .FirstOrDefaultAsync();
 
-            workOrder.WorkDone = closure.WorkDone;
-            workOrder.PartsUsed = closure.PartsUsed;
-            workOrder.Cost = closure.Cost;
-            workOrder.Downtime = closure.Downtime;
-            workOrder.EndDate = closure.EndDate;
-            workOrder.Status = WorkOrderStatus.Closed;
-
-            // The asset comes back from the workshop into the store, with no custodian.
-            if (workOrder.AssetId is int assetId)
-            {
-                var asset = await _db.Assets.FirstOrDefaultAsync(a => a.Id == assetId);
-                if (asset is not null && asset.LifecycleStage == LifecycleStage.UnderMaintenance)
+                if (openCustody is not null)
                 {
-                    var openCustody = await _db.AssetAssignments
-                        .Where(a => a.IsActive && a.AssetId == assetId && a.ReturnDate == null
-                                    && a.Status == RequestStatus.Approved)
-                        .OrderByDescending(a => a.Id)
-                        .FirstOrDefaultAsync();
-
-                    if (openCustody is not null)
-                    {
-                        openCustody.ReturnDate = closure.EndDate;
-                    }
-
-                    asset.CustodianId = null;
-                    asset.DepartmentId = null;
-                    asset.LifecycleStage = LifecycleStage.InStore;
+                    openCustody.ReturnDate = closure.EndDate;
                 }
-            }
 
-            await _db.SaveChangesAsync();
+                asset.CustodianId = null;
+                asset.DepartmentId = null;
+                asset.LifecycleStage = LifecycleStage.InStore;
+            }
         }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+
+        await db.SaveChangesAsync();
     }
 }

@@ -15,19 +15,21 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class DepreciationService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
     private readonly ICurrentUserService _currentUser;
 
-    public DepreciationService(ApplicationDbContext db, ICurrentUserService currentUser)
+    public DepreciationService(IDbContextFactory<ApplicationDbContext> dbFactory, ICurrentUserService currentUser)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _currentUser = currentUser;
     }
 
     /// <summary>The entries already posted, newest first.</summary>
     public async Task<Paged<DepreciationEntry>> GetAllAsync(int page = 1)
     {
-        var query = _db.DepreciationEntries
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = db.DepreciationEntries
             .AsNoTracking()
             .Include(e => e.Asset)
             .Where(e => e.IsActive);
@@ -48,18 +50,22 @@ public class DepreciationService
     /// </summary>
     public async Task<List<DepreciationPreviewLine>> PreviewAsync(string period, DateTime periodEnd)
     {
-        return await BuildAsync(period, periodEnd);
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await BuildAsync(db, period, periodEnd);
     }
 
     /// <summary>Administrator only. Writes the entries the preview showed. Returns how many were written.</summary>
     public async Task<int> PostAsync(string period, DateTime periodEnd)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (!await _currentUser.IsInRoleAsync(AppRoles.Admin))
         {
             throw new InvalidOperationException("Only the administrator can post depreciation.");
         }
 
-        var lines = await BuildAsync(period, periodEnd);
+        var lines = await BuildAsync(db, period, periodEnd);
         var postable = lines.Where(l => l.Skipped is null).ToList();
 
         if (postable.Count == 0)
@@ -67,35 +73,28 @@ public class DepreciationService
             throw new InvalidOperationException("There is nothing to post for this period.");
         }
 
-        try
+        foreach (var line in postable)
         {
-            foreach (var line in postable)
+            db.DepreciationEntries.Add(new DepreciationEntry
             {
-                _db.DepreciationEntries.Add(new DepreciationEntry
-                {
-                    AssetId = line.AssetId,
-                    PeriodDate = periodEnd.Date,
-                    Amount = line.Amount,
-                    AccumulatedDepreciation = line.AccumulatedDepreciation,
-                    NetBookValue = line.NetBookValue,
-                    Notes = period
-                });
-            }
+                AssetId = line.AssetId,
+                PeriodDate = periodEnd.Date,
+                Amount = line.Amount,
+                AccumulatedDepreciation = line.AccumulatedDepreciation,
+                NetBookValue = line.NetBookValue,
+                Notes = period
+            });
+        }
 
-            await _db.SaveChangesAsync();
-            return postable.Count;
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        await db.SaveChangesAsync();
+        return postable.Count;
     }
 
     // ------------------------------------------------------------------
     // The calculation
     // ------------------------------------------------------------------
 
-    private async Task<List<DepreciationPreviewLine>> BuildAsync(string period, DateTime periodEnd)
+    private async Task<List<DepreciationPreviewLine>> BuildAsync(ApplicationDbContext db, string period, DateTime periodEnd)
     {
         if (period != DepreciationPeriod.Monthly && period != DepreciationPeriod.Annual)
         {
@@ -109,7 +108,7 @@ public class DepreciationService
 
         var date = periodEnd.Date;
 
-        var assets = await _db.Assets
+        var assets = await db.Assets
             .AsNoTracking()
             .Where(a => a.IsActive && a.LifecycleStage != LifecycleStage.Disposed)
             .Select(a => new
@@ -126,7 +125,7 @@ public class DepreciationService
             .ToListAsync();
 
         // Everything already posted for these assets, so the run can carry on from it.
-        var posted = await _db.DepreciationEntries
+        var posted = await db.DepreciationEntries
             .AsNoTracking()
             .Where(e => e.IsActive)
             .Select(e => new { e.AssetId, e.PeriodDate, e.AccumulatedDepreciation })

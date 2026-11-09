@@ -13,11 +13,11 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class DirectoryService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public DirectoryService(ApplicationDbContext db)
+    public DirectoryService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     // ------------------------------------------------------------------
@@ -26,7 +26,9 @@ public class DirectoryService
 
     public async Task<Paged<Employee>> SearchEmployeesAsync(EmployeeFilter filter)
     {
-        IQueryable<Employee> query = _db.Employees
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        IQueryable<Employee> query = db.Employees
             .AsNoTracking()
             .Include(e => e.Department);
 
@@ -60,7 +62,9 @@ public class DirectoryService
     /// <summary>One employee with the department loaded.</summary>
     public async Task<Employee?> GetEmployeeAsync(int id)
     {
-        return await _db.Employees
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Employees
             .AsNoTracking()
             .Include(e => e.Department)
             .FirstOrDefaultAsync(e => e.Id == id);
@@ -72,7 +76,9 @@ public class DirectoryService
     /// </summary>
     public async Task<List<Asset>> GetEmployeeAssetsAsync(int employeeId)
     {
-        return await _db.Assets
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Assets
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.Status)
@@ -86,9 +92,11 @@ public class DirectoryService
     /// <summary>Every approved custody this employee has ever had, newest first.</summary>
     public async Task<List<CustodyLine>> GetCustodyHistoryAsync(int employeeId)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         // No Include here on purpose: the Select below decides what is read,
         // and EF would only warn that the Includes were ignored.
-        return await _db.AssetAssignments
+        return await db.AssetAssignments
             .AsNoTracking()
             .Where(a => a.IsActive
                         && a.CustodianId == employeeId
@@ -112,6 +120,8 @@ public class DirectoryService
     /// <summary>How many assets each of these employees holds right now, by employee id.</summary>
     public async Task<Dictionary<int, int>> CountAssetsAsync(IEnumerable<int> employeeIds)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         var ids = employeeIds.Distinct().ToList();
         if (ids.Count == 0)
         {
@@ -119,7 +129,7 @@ public class DirectoryService
         }
 
         // Grouped in the database, one round trip for the whole page.
-        var counts = await _db.Assets
+        var counts = await db.Assets
             .AsNoTracking()
             .Where(a => a.IsActive && a.CustodianId != null && ids.Contains(a.CustodianId.Value))
             .GroupBy(a => a.CustodianId!.Value)
@@ -136,7 +146,9 @@ public class DirectoryService
     /// <summary>Login accounts, searched by username, with the linked employee loaded.</summary>
     public async Task<Paged<User>> SearchUsersAsync(string? search, bool includeInactive, int page)
     {
-        IQueryable<User> query = _db.Users
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        IQueryable<User> query = db.Users
             .AsNoTracking()
             .Include(u => u.Employee);
 
@@ -170,7 +182,9 @@ public class DirectoryService
     /// </summary>
     public async Task<string?> LoginForEmployeeAsync(int employeeId, int exceptUserId)
     {
-        return await _db.Users
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Users
             .AsNoTracking()
             .Where(u => u.IsActive && u.EmployeeId == employeeId && u.Id != exceptUserId)
             .Select(u => u.Username)
@@ -180,7 +194,9 @@ public class DirectoryService
     /// <summary>One login account with its linked employee.</summary>
     public async Task<User?> GetUserAsync(int id)
     {
-        return await _db.Users
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Users
             .AsNoTracking()
             .Include(u => u.Employee!).ThenInclude(e => e.Department)
             .FirstOrDefaultAsync(u => u.Id == id);

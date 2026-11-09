@@ -15,16 +15,18 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class ReceiveService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public ReceiveService(ApplicationDbContext db)
+    public ReceiveService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<Paged<Receive>> GetAllAsync(int page = 1)
     {
-        var query = _db.Receives
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = db.Receives
             .AsNoTracking()
             .Include(r => r.Supplier)
             .Include(r => r.Store)
@@ -48,7 +50,9 @@ public class ReceiveService
     /// <summary>Assets a delivery can contain: active and not disposed of.</summary>
     public async Task<List<Asset>> GetReceivableAssetsAsync()
     {
-        return await _db.Assets
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Assets
             .AsNoTracking()
             .Where(a => a.IsActive && a.LifecycleStage != LifecycleStage.Disposed)
             .OrderBy(a => a.AssetNumber)
@@ -57,6 +61,8 @@ public class ReceiveService
 
     public async Task<int> CreateAsync(ReceiveInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (input.Lines.Count == 0)
         {
             throw new InvalidOperationException("A delivery needs at least one line.");
@@ -76,74 +82,67 @@ public class ReceiveService
             }
         }
 
-        try
+        var store = await db.Stores.AsNoTracking().FirstOrDefaultAsync(s => s.Id == input.StoreId && s.IsActive)
+                    ?? throw new InvalidOperationException("Store not found.");
+
+        var receive = new Receive
         {
-            var store = await _db.Stores.AsNoTracking().FirstOrDefaultAsync(s => s.Id == input.StoreId && s.IsActive)
-                        ?? throw new InvalidOperationException("Store not found.");
+            Date = input.Date,
+            StoreId = input.StoreId,
+            SupplierId = input.SupplierId,
+            PurchaseOrderId = input.PurchaseOrderId,
+            Notes = input.Notes,
+            Status = "Received"
+        };
 
-            var receive = new Receive
+        foreach (var line in input.Lines)
+        {
+            receive.Lines.Add(new ReceiveLine
             {
-                Date = input.Date,
-                StoreId = input.StoreId,
-                SupplierId = input.SupplierId,
-                PurchaseOrderId = input.PurchaseOrderId,
-                Notes = input.Notes,
-                Status = "Received"
-            };
+                ItemId = line.ItemId,
+                AssetId = line.AssetId,
+                Quantity = line.ItemId is null ? 1 : line.Quantity
+            });
 
-            foreach (var line in input.Lines)
+            if (line.ItemId is int itemId)
             {
-                receive.Lines.Add(new ReceiveLine
-                {
-                    ItemId = line.ItemId,
-                    AssetId = line.AssetId,
-                    Quantity = line.ItemId is null ? 1 : line.Quantity
-                });
+                // Consumable item: the store's balance goes up.
+                var balance = await db.StockBalances
+                    .FirstOrDefaultAsync(b => b.StoreId == input.StoreId && b.ItemId == itemId);
 
-                if (line.ItemId is int itemId)
+                if (balance is null)
                 {
-                    // Consumable item: the store's balance goes up.
-                    var balance = await _db.StockBalances
-                        .FirstOrDefaultAsync(b => b.StoreId == input.StoreId && b.ItemId == itemId);
-
-                    if (balance is null)
+                    db.StockBalances.Add(new StockBalance
                     {
-                        _db.StockBalances.Add(new StockBalance
-                        {
-                            StoreId = input.StoreId,
-                            ItemId = itemId,
-                            Quantity = line.Quantity
-                        });
-                    }
-                    else
-                    {
-                        balance.Quantity += line.Quantity;
-                        balance.IsActive = true;
-                    }
+                        StoreId = input.StoreId,
+                        ItemId = itemId,
+                        Quantity = line.Quantity
+                    });
                 }
-                else if (line.AssetId is int assetId)
+                else
                 {
-                    // Asset: it is now in the store.
-                    var asset = await _db.Assets.FirstOrDefaultAsync(a => a.Id == assetId)
-                                ?? throw new InvalidOperationException("Asset not found.");
-
-                    if (!asset.IsActive || asset.LifecycleStage == LifecycleStage.Disposed)
-                    {
-                        throw new InvalidOperationException($"Asset {asset.AssetNumber} cannot be received.");
-                    }
-
-                    asset.LocationId = store.LocationId ?? asset.LocationId;
-                    asset.LifecycleStage = LifecycleStage.InStore;
+                    balance.Quantity += line.Quantity;
+                    balance.IsActive = true;
                 }
             }
+            else if (line.AssetId is int assetId)
+            {
+                // Asset: it is now in the store.
+                var asset = await db.Assets.FirstOrDefaultAsync(a => a.Id == assetId)
+                            ?? throw new InvalidOperationException("Asset not found.");
 
-            _db.Receives.Add(receive);
-            await _db.SaveChangesAsync();
-            return receive.Id;
+                if (!asset.IsActive || asset.LifecycleStage == LifecycleStage.Disposed)
+                {
+                    throw new InvalidOperationException($"Asset {asset.AssetNumber} cannot be received.");
+                }
+
+                asset.LocationId = store.LocationId ?? asset.LocationId;
+                asset.LifecycleStage = LifecycleStage.InStore;
+            }
         }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+
+        db.Receives.Add(receive);
+        await db.SaveChangesAsync();
+        return receive.Id;
     }
 }

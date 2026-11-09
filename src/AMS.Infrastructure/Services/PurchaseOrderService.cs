@@ -15,15 +15,15 @@ public class PurchaseOrderService
     /// <summary>Every purchase order number looks like PO-00001.</summary>
     private const string NumberPrefix = "PO-";
 
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public PurchaseOrderService(ApplicationDbContext db)
+    public PurchaseOrderService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
-    private IQueryable<PurchaseOrder> Orders() =>
-        _db.PurchaseOrders
+    private IQueryable<PurchaseOrder> Orders(ApplicationDbContext db) =>
+        db.PurchaseOrders
             .AsNoTracking()
             .Include(p => p.Supplier)
             .Include(p => p.Lines.Where(l => l.IsActive))
@@ -32,7 +32,9 @@ public class PurchaseOrderService
 
     public async Task<Paged<PurchaseOrder>> GetAllAsync(string? status = null, int page = 1)
     {
-        var query = Orders();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = Orders(db);
 
         if (!string.IsNullOrEmpty(status))
         {
@@ -52,7 +54,9 @@ public class PurchaseOrderService
     /// <summary>Open orders, for the Receive screen to pick from.</summary>
     public async Task<List<PurchaseOrder>> GetOpenAsync()
     {
-        return await Orders()
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await Orders(db)
             .Where(p => p.Status == PurchaseOrderStatus.Open)
             .OrderByDescending(p => p.Id)
             .ToListAsync();
@@ -60,7 +64,9 @@ public class PurchaseOrderService
 
     public async Task<PurchaseOrder?> GetByIdAsync(int id)
     {
-        return await Orders().FirstOrDefaultAsync(p => p.Id == id);
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await Orders(db).FirstOrDefaultAsync(p => p.Id == id);
     }
 
     // ------------------------------------------------------------------
@@ -68,16 +74,21 @@ public class PurchaseOrderService
     // ------------------------------------------------------------------
 
     /// <summary>The number the next order would get, so the screen can show it before saving.</summary>
-    public Task<string> PreviewNextNumberAsync() => NextNumberAsync();
+    public async Task<string> PreviewNextNumberAsync()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await NextNumberAsync(db);
+    }
 
     /// <summary>
     /// Highest existing number + 1, e.g. PO-00007 -> PO-00008. Closed and deactivated
     /// orders count too, so a number is never reused. If two people save at the same
     /// instant the unique index rejects the second, and that user simply saves again.
     /// </summary>
-    private async Task<string> NextNumberAsync()
+    private async Task<string> NextNumberAsync(ApplicationDbContext db)
     {
-        var existing = await _db.PurchaseOrders
+        var existing = await db.PurchaseOrders
             .AsNoTracking()
             .Where(p => p.PurchaseOrderNumber.StartsWith(NumberPrefix))
             .Select(p => p.PurchaseOrderNumber)
@@ -102,93 +113,78 @@ public class PurchaseOrderService
     /// <summary>Creates the order with a generated number. Returns the new Id.</summary>
     public async Task<int> CreateAsync(PurchaseOrderInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         Validate(input);
 
-        try
+        var order = new PurchaseOrder
         {
-            var order = new PurchaseOrder
-            {
-                PurchaseOrderNumber = await NextNumberAsync(),
-                SupplierId = input.SupplierId,
-                PurchaseDate = input.PurchaseDate,
-                ExpectedDeliveryDate = input.ExpectedDeliveryDate,
-                Currency = input.Currency,
-                Status = PurchaseOrderStatus.Open,
-                TotalCost = Total(input.Lines)
-            };
+            PurchaseOrderNumber = await NextNumberAsync(db),
+            SupplierId = input.SupplierId,
+            PurchaseDate = input.PurchaseDate,
+            ExpectedDeliveryDate = input.ExpectedDeliveryDate,
+            Currency = input.Currency,
+            Status = PurchaseOrderStatus.Open,
+            TotalCost = Total(input.Lines)
+        };
 
-            foreach (var line in input.Lines)
-            {
-                order.Lines.Add(NewLine(line));
-            }
-
-            _db.PurchaseOrders.Add(order);
-            await _db.SaveChangesAsync();
-            return order.Id;
-        }
-        finally
+        foreach (var line in input.Lines)
         {
-            _db.ChangeTracker.Clear();
+            order.Lines.Add(NewLine(line));
         }
+
+        db.PurchaseOrders.Add(order);
+        await db.SaveChangesAsync();
+        return order.Id;
     }
 
     /// <summary>Replaces the header and the lines of an open order. The number never changes.</summary>
     public async Task UpdateAsync(int id, PurchaseOrderInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         Validate(input);
 
-        try
+        var order = await db.PurchaseOrders
+            .Include(p => p.Lines)
+            .FirstOrDefaultAsync(p => p.Id == id && p.IsActive)
+            ?? throw new InvalidOperationException("Purchase order not found.");
+
+        if (order.Status == PurchaseOrderStatus.Closed)
         {
-            var order = await _db.PurchaseOrders
-                .Include(p => p.Lines)
-                .FirstOrDefaultAsync(p => p.Id == id && p.IsActive)
-                ?? throw new InvalidOperationException("Purchase order not found.");
-
-            if (order.Status == PurchaseOrderStatus.Closed)
-            {
-                throw new InvalidOperationException("A closed purchase order cannot be changed.");
-            }
-
-            // The number stays as it was issued; only the contents are editable.
-            order.SupplierId = input.SupplierId;
-            order.PurchaseDate = input.PurchaseDate;
-            order.ExpectedDeliveryDate = input.ExpectedDeliveryDate;
-            order.Currency = input.Currency;
-            order.TotalCost = Total(input.Lines);
-
-            // The old lines are deactivated, never deleted.
-            foreach (var old in order.Lines.Where(l => l.IsActive))
-            {
-                old.IsActive = false;
-            }
-
-            foreach (var line in input.Lines)
-            {
-                order.Lines.Add(NewLine(line));
-            }
-
-            await _db.SaveChangesAsync();
+            throw new InvalidOperationException("A closed purchase order cannot be changed.");
         }
-        finally
+
+        // The number stays as it was issued; only the contents are editable.
+        order.SupplierId = input.SupplierId;
+        order.PurchaseDate = input.PurchaseDate;
+        order.ExpectedDeliveryDate = input.ExpectedDeliveryDate;
+        order.Currency = input.Currency;
+        order.TotalCost = Total(input.Lines);
+
+        // The old lines are deactivated, never deleted.
+        foreach (var old in order.Lines.Where(l => l.IsActive))
         {
-            _db.ChangeTracker.Clear();
+            old.IsActive = false;
         }
+
+        foreach (var line in input.Lines)
+        {
+            order.Lines.Add(NewLine(line));
+        }
+
+        await db.SaveChangesAsync();
     }
 
     public async Task CloseAsync(int id)
     {
-        try
-        {
-            var order = await _db.PurchaseOrders.FirstOrDefaultAsync(p => p.Id == id && p.IsActive)
-                        ?? throw new InvalidOperationException("Purchase order not found.");
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
-            order.Status = PurchaseOrderStatus.Closed;
-            await _db.SaveChangesAsync();
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        var order = await db.PurchaseOrders.FirstOrDefaultAsync(p => p.Id == id && p.IsActive)
+                    ?? throw new InvalidOperationException("Purchase order not found.");
+
+        order.Status = PurchaseOrderStatus.Closed;
+        await db.SaveChangesAsync();
     }
 
     /// <summary>

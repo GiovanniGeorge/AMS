@@ -10,16 +10,18 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class AuditLogService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public AuditLogService(ApplicationDbContext db)
+    public AuditLogService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<AuditPage> SearchAsync(AuditFilter filter)
     {
-        var query = _db.AuditLogs.AsNoTracking().Include(a => a.User).AsQueryable();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = db.AuditLogs.AsNoTracking().Include(a => a.User).AsQueryable();
 
         if (filter.Action is not null)
         {
@@ -64,7 +66,9 @@ public class AuditLogService
     /// <summary>The entity names that actually appear in the log, for the filter dropdown.</summary>
     public async Task<List<string>> GetEntityNamesAsync()
     {
-        return await _db.AuditLogs
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.AuditLogs
             .AsNoTracking()
             .Where(a => a.EntityName != null)
             .Select(a => a.EntityName!)

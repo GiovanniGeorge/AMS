@@ -9,12 +9,12 @@ namespace AMS.Infrastructure.Services;
 /// <summary>Login, logout and first-user setup.</summary>
 public class AccountService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
     private readonly Pbkdf2PasswordHasher _hasher;
 
-    public AccountService(ApplicationDbContext db, Pbkdf2PasswordHasher hasher)
+    public AccountService(IDbContextFactory<ApplicationDbContext> dbFactory, Pbkdf2PasswordHasher hasher)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _hasher = hasher;
     }
 
@@ -24,7 +24,9 @@ public class AccountService
     /// </summary>
     public async Task<LoginResult?> ValidateCredentialsAsync(string username, string password)
     {
-        var user = await _db.Users
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var user = await db.Users
             .AsNoTracking()
             .Include(u => u.UserRoles.Where(ur => ur.IsActive))
                 .ThenInclude(ur => ur.Role)
@@ -35,7 +37,7 @@ public class AccountService
                       && user.IsActive
                       && _hasher.Verify(user.PasswordHash, password);
 
-        _db.AuditLogs.Add(new AuditLog
+        db.AuditLogs.Add(new AuditLog
         {
             UserId = user?.Id,
             Action = isValid ? AuditAction.Login : AuditAction.FailedLogin,
@@ -44,7 +46,7 @@ public class AccountService
             DateTime = DateTime.UtcNow,
             LogLevel = isValid ? "Information" : "Warning"
         });
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
 
         if (!isValid)
         {
@@ -62,7 +64,9 @@ public class AccountService
     /// <summary>Writes a Logout row to AuditLog.</summary>
     public async Task LogLogoutAsync(int userId)
     {
-        _db.AuditLogs.Add(new AuditLog
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        db.AuditLogs.Add(new AuditLog
         {
             UserId = userId,
             Action = AuditAction.Logout,
@@ -71,13 +75,15 @@ public class AccountService
             DateTime = DateTime.UtcNow,
             LogLevel = "Information"
         });
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
     }
 
     /// <summary>True as soon as at least one user exists (active or not).</summary>
-    public Task<bool> AnyUsersExistAsync()
+    public async Task<bool> AnyUsersExistAsync()
     {
-        return _db.Users.AnyAsync();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Users.AnyAsync();
     }
 
     /// <summary>
@@ -86,8 +92,10 @@ public class AccountService
     /// </summary>
     public async Task<bool> CreateFirstUserAsync(string username, string password)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         // Checked again here, not only on the page, so the setup can never run twice.
-        if (await _db.Users.AnyAsync())
+        if (await db.Users.AnyAsync())
         {
             return false;
         }
@@ -98,21 +106,21 @@ public class AccountService
             PasswordHash = _hasher.Hash(password),
             IsActive = true
         };
-        _db.Users.Add(user);
-        await _db.SaveChangesAsync();
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
 
         // The Users and Roles screens are for the administrator only, so the very first
         // account has to be one - otherwise nobody could ever open them again.
-        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Name == AppRoles.Admin);
+        var role = await db.Roles.FirstOrDefaultAsync(r => r.Name == AppRoles.Admin);
         if (role is null)
         {
             role = new Role { Name = AppRoles.Admin, IsActive = true };
-            _db.Roles.Add(role);
-            await _db.SaveChangesAsync();
+            db.Roles.Add(role);
+            await db.SaveChangesAsync();
         }
 
-        _db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = role.Id, IsActive = true });
-        await _db.SaveChangesAsync();
+        db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = role.Id, IsActive = true });
+        await db.SaveChangesAsync();
         return true;
     }
 }

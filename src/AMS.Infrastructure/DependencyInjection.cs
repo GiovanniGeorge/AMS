@@ -22,12 +22,19 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, string connectionString)
     {
-        services.AddDbContext<ApplicationDbContext>(options =>
+        // A factory, not one shared DbContext. In Blazor Server a "scope" is the whole browser tab,
+        // so AddDbContext would hand the same context to every page for hours: two pages loading
+        // at once collide on it, and it keeps every entity it ever loaded. Each service method
+        // asks the factory for a fresh, short-lived context instead.
+        // Scoped (not the default Singleton) because the context needs ICurrentUserService,
+        // which belongs to the signed-in tab.
+        services.AddDbContextFactory<ApplicationDbContext>(options =>
             // Compatibility level 120 = SQL Server 2014, which is what AMS runs on.
             // Without it EF Core 8 writes "OPENJSON(...) WITH (...)" for a list parameter
             // (e.g. Where(a => ids.Contains(a.Id))) and SQL Server 2014 rejects it with
             // "Incorrect syntax near the keyword 'WITH'". Raise it only with the server.
-            options.UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(120)));
+            options.UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(120)),
+            ServiceLifetime.Scoped);
 
         // One registration covers CrudService<Category>, CrudService<Brand>, ... etc.
         services.AddScoped(typeof(CrudService<>));

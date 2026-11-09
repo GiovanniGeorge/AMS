@@ -14,16 +14,18 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class RevaluationService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public RevaluationService(ApplicationDbContext db)
+    public RevaluationService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<Paged<RevaluationEvent>> GetAllAsync(int page = 1)
     {
-        var query = _db.RevaluationEvents
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = db.RevaluationEvents
             .AsNoTracking()
             .Include(r => r.Asset)
             .Where(r => r.IsActive);
@@ -41,7 +43,9 @@ public class RevaluationService
     /// <summary>Assets that can be revalued: active and not disposed of.</summary>
     public async Task<List<Asset>> GetRevaluableAssetsAsync()
     {
-        return await _db.Assets
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Assets
             .AsNoTracking()
             .Where(a => a.IsActive && a.LifecycleStage != LifecycleStage.Disposed)
             .OrderBy(a => a.AssetNumber)
@@ -51,7 +55,9 @@ public class RevaluationService
     /// <summary>The value the next revaluation starts from: the last new value, or the purchase cost.</summary>
     public async Task<decimal?> GetCurrentValueAsync(int assetId)
     {
-        var last = await _db.RevaluationEvents
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var last = await db.RevaluationEvents
             .AsNoTracking()
             .Where(r => r.IsActive && r.AssetId == assetId)
             .OrderByDescending(r => r.Date)
@@ -64,7 +70,7 @@ public class RevaluationService
             return last;
         }
 
-        return await _db.Assets
+        return await db.Assets
             .AsNoTracking()
             .Where(a => a.Id == assetId)
             .Select(a => a.PurchaseCost)
@@ -73,37 +79,32 @@ public class RevaluationService
 
     public async Task<int> CreateAsync(RevaluationInput input)
     {
-        try
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var asset = await db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == input.AssetId)
+                    ?? throw new InvalidOperationException("Asset not found.");
+
+        if (!asset.IsActive || asset.LifecycleStage == LifecycleStage.Disposed)
         {
-            var asset = await _db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == input.AssetId)
-                        ?? throw new InvalidOperationException("Asset not found.");
-
-            if (!asset.IsActive || asset.LifecycleStage == LifecycleStage.Disposed)
-            {
-                throw new InvalidOperationException("A disposed or inactive asset cannot be revalued.");
-            }
-
-            var oldValue = await GetCurrentValueAsync(input.AssetId);
-
-            var revaluation = new RevaluationEvent
-            {
-                AssetId = input.AssetId,
-                OldValue = oldValue,
-                NewValue = input.NewValue,
-                Difference = input.NewValue - (oldValue ?? 0m),
-                Date = input.Date,
-                Reason = input.Reason,
-                Status = "Recorded"
-            };
-
-            // History only: the asset's purchase cost is not touched.
-            _db.RevaluationEvents.Add(revaluation);
-            await _db.SaveChangesAsync();
-            return revaluation.Id;
+            throw new InvalidOperationException("A disposed or inactive asset cannot be revalued.");
         }
-        finally
+
+        var oldValue = await GetCurrentValueAsync(input.AssetId);
+
+        var revaluation = new RevaluationEvent
         {
-            _db.ChangeTracker.Clear();
-        }
+            AssetId = input.AssetId,
+            OldValue = oldValue,
+            NewValue = input.NewValue,
+            Difference = input.NewValue - (oldValue ?? 0m),
+            Date = input.Date,
+            Reason = input.Reason,
+            Status = "Recorded"
+        };
+
+        // History only: the asset's purchase cost is not touched.
+        db.RevaluationEvents.Add(revaluation);
+        await db.SaveChangesAsync();
+        return revaluation.Id;
     }
 }

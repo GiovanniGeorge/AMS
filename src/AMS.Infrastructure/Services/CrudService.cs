@@ -22,16 +22,18 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class CrudService<T> where T : BaseEntity
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public CrudService(ApplicationDbContext db)
+    public CrudService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<List<T>> GetAllAsync(bool includeInactive = false, params Expression<Func<T, object>>[] includes)
     {
-        IQueryable<T> query = _db.Set<T>().AsNoTracking();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        IQueryable<T> query = db.Set<T>().AsNoTracking();
 
         foreach (var include in includes)
         {
@@ -50,7 +52,9 @@ public class CrudService<T> where T : BaseEntity
     public async Task<Paged<T>> GetPageAsync(int page = 1, bool includeInactive = false,
         params Expression<Func<T, object>>[] includes)
     {
-        IQueryable<T> query = _db.Set<T>().AsNoTracking();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        IQueryable<T> query = db.Set<T>().AsNoTracking();
 
         foreach (var include in includes)
         {
@@ -75,68 +79,63 @@ public class CrudService<T> where T : BaseEntity
 
     public async Task<T?> GetByIdAsync(int id)
     {
-        return await _db.Set<T>().AsNoTracking().FirstOrDefaultAsync(e => e.Id == id);
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.Set<T>().AsNoTracking().FirstOrDefaultAsync(e => e.Id == id);
     }
 
     public async Task AddAsync(T entity)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         entity.IsActive = true;
 
-        try
-        {
-            _db.Set<T>().Add(entity);
-            await _db.SaveChangesAsync();
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        db.Set<T>().Add(entity);
+        await db.SaveChangesAsync();
     }
 
     /// <summary>
     /// Loads the row and copies the edited values onto it, so EF marks only the columns
-    /// that really differ. _db.Update() would mark every column as changed, which filled
+    /// that really differ. db.Update() would mark every column as changed, which filled
     /// the audit log with entries whose before and after were identical.
     /// </summary>
     public async Task UpdateAsync(T entity)
     {
-        try
-        {
-            var current = await _db.Set<T>().FindAsync(entity.Id)
-                          ?? throw new InvalidOperationException("This record no longer exists.");
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
-            // Scalar columns only - navigation properties are not touched.
-            _db.Entry(current).CurrentValues.SetValues(entity);
-            await _db.SaveChangesAsync();
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        var current = await db.Set<T>().FindAsync(entity.Id)
+                      ?? throw new InvalidOperationException("This record no longer exists.");
+
+        // Scalar columns only - navigation properties are not touched.
+        db.Entry(current).CurrentValues.SetValues(entity);
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Soft delete: sets IsActive = false. The row stays in the database.</summary>
-    public async Task DeactivateAsync(int id) => await SetActiveAsync(id, false);
+    public async Task DeactivateAsync(int id)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        await SetActiveAsync(db, id, false);
+    }
 
     /// <summary>Brings a deactivated row back.</summary>
-    public async Task ActivateAsync(int id) => await SetActiveAsync(id, true);
-
-    private async Task SetActiveAsync(int id, bool isActive)
+    public async Task ActivateAsync(int id)
     {
-        try
-        {
-            var entity = await _db.Set<T>().FindAsync(id);
-            if (entity is null)
-            {
-                return;
-            }
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
-            entity.IsActive = isActive;
-            await _db.SaveChangesAsync();
-        }
-        finally
+        await SetActiveAsync(db, id, true);
+    }
+
+    private async Task SetActiveAsync(ApplicationDbContext db, int id, bool isActive)
+    {
+        var entity = await db.Set<T>().FindAsync(id);
+        if (entity is null)
         {
-            _db.ChangeTracker.Clear();
+            return;
         }
+
+        entity.IsActive = isActive;
+        await db.SaveChangesAsync();
     }
 }

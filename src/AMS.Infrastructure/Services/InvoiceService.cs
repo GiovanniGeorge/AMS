@@ -12,15 +12,15 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class InvoiceService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public InvoiceService(ApplicationDbContext db)
+    public InvoiceService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
-    private IQueryable<Invoice> Invoices() =>
-        _db.Invoices
+    private IQueryable<Invoice> Invoices(ApplicationDbContext db) =>
+        db.Invoices
             .AsNoTracking()
             .Include(i => i.Supplier)
             .Include(i => i.PurchaseOrder)
@@ -31,7 +31,9 @@ public class InvoiceService
 
     public async Task<Paged<Invoice>> GetAllAsync(bool includeInactive = false, int page = 1)
     {
-        var query = Invoices();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var query = Invoices(db);
 
         if (!includeInactive)
         {
@@ -48,15 +50,23 @@ public class InvoiceService
         return new Paged<Invoice>(items, total);
     }
 
-    public async Task<Invoice?> GetByIdAsync(int id) =>
-        await Invoices().FirstOrDefaultAsync(i => i.Id == id);
+    public async Task<Invoice?> GetByIdAsync(int id)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await Invoices(db).FirstOrDefaultAsync(i => i.Id == id);
+    }
 
     /// <summary>The invoices that bill this asset, newest first. Usually none or one.</summary>
-    public async Task<List<Invoice>> GetForAssetAsync(int assetId) =>
-        await Invoices()
+    public async Task<List<Invoice>> GetForAssetAsync(int assetId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await Invoices(db)
             .Where(i => i.IsActive && i.Lines.Any(l => l.IsActive && l.AssetId == assetId))
             .OrderByDescending(i => i.Id)
             .ToListAsync();
+    }
 
     /// <summary>
     /// An asset belongs on one invoice, so the ones already billed are left out -
@@ -64,11 +74,13 @@ public class InvoiceService
     /// </summary>
     public async Task<List<Asset>> GetBillableAssetsAsync(int? includeAssetId = null)
     {
-        var billed = _db.InvoiceLines
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var billed = db.InvoiceLines
             .Where(l => l.IsActive && l.AssetId != null && l.Invoice!.IsActive)
             .Select(l => l.AssetId!.Value);
 
-        return await _db.Assets
+        return await db.Assets
             .AsNoTracking()
             .Where(a => a.IsActive && (!billed.Contains(a.Id) || a.Id == includeAssetId))
             .OrderByDescending(a => a.Id)
@@ -77,79 +89,69 @@ public class InvoiceService
 
     public async Task<int> CreateAsync(InvoiceInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         Validate(input);
 
-        try
+        await EnsureNumberIsFreeAsync(db, input.InvoiceNumber, input.SupplierId, exceptId: null);
+
+        var invoice = new Invoice
         {
-            await EnsureNumberIsFreeAsync(input.InvoiceNumber, input.SupplierId, exceptId: null);
+            InvoiceNumber = input.InvoiceNumber.Trim(),
+            SupplierId = input.SupplierId,
+            PurchaseOrderId = input.PurchaseOrderId,
+            InvoiceDate = input.InvoiceDate,
+            Currency = input.Currency,
+            Amount = AmountOf(input)
+        };
 
-            var invoice = new Invoice
-            {
-                InvoiceNumber = input.InvoiceNumber.Trim(),
-                SupplierId = input.SupplierId,
-                PurchaseOrderId = input.PurchaseOrderId,
-                InvoiceDate = input.InvoiceDate,
-                Currency = input.Currency,
-                Amount = AmountOf(input)
-            };
-
-            foreach (var line in input.Lines)
-            {
-                invoice.Lines.Add(NewLine(line));
-            }
-
-            _db.Invoices.Add(invoice);
-            await _db.SaveChangesAsync();
-
-            await FillAssetPurchaseFactsAsync(invoice);
-            return invoice.Id;
-        }
-        finally
+        foreach (var line in input.Lines)
         {
-            _db.ChangeTracker.Clear();
+            invoice.Lines.Add(NewLine(line));
         }
+
+        db.Invoices.Add(invoice);
+        await db.SaveChangesAsync();
+
+        await FillAssetPurchaseFactsAsync(db, invoice);
+        return invoice.Id;
     }
 
     /// <summary>Replaces the header and the lines.</summary>
     public async Task UpdateAsync(int id, InvoiceInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         Validate(input);
 
-        try
+        var invoice = await db.Invoices
+            .Include(i => i.Lines)
+            .FirstOrDefaultAsync(i => i.Id == id)
+            ?? throw new InvalidOperationException("Invoice not found.");
+
+        await EnsureNumberIsFreeAsync(db, input.InvoiceNumber, input.SupplierId, exceptId: id);
+
+        invoice.InvoiceNumber = input.InvoiceNumber.Trim();
+        invoice.SupplierId = input.SupplierId;
+        invoice.PurchaseOrderId = input.PurchaseOrderId;
+        invoice.InvoiceDate = input.InvoiceDate;
+        invoice.Currency = input.Currency;
+        invoice.Amount = AmountOf(input);
+
+        // The old lines are deactivated, never deleted.
+        foreach (var old in invoice.Lines.Where(l => l.IsActive))
         {
-            var invoice = await _db.Invoices
-                .Include(i => i.Lines)
-                .FirstOrDefaultAsync(i => i.Id == id)
-                ?? throw new InvalidOperationException("Invoice not found.");
-
-            await EnsureNumberIsFreeAsync(input.InvoiceNumber, input.SupplierId, exceptId: id);
-
-            invoice.InvoiceNumber = input.InvoiceNumber.Trim();
-            invoice.SupplierId = input.SupplierId;
-            invoice.PurchaseOrderId = input.PurchaseOrderId;
-            invoice.InvoiceDate = input.InvoiceDate;
-            invoice.Currency = input.Currency;
-            invoice.Amount = AmountOf(input);
-
-            // The old lines are deactivated, never deleted.
-            foreach (var old in invoice.Lines.Where(l => l.IsActive))
-            {
-                old.IsActive = false;
-            }
-
-            foreach (var line in input.Lines)
-            {
-                invoice.Lines.Add(NewLine(line));
-            }
-
-            await _db.SaveChangesAsync();
-
-            await FillAssetPurchaseFactsAsync(invoice);
+            old.IsActive = false;
         }
-        finally
+
+        foreach (var line in input.Lines)
         {
-            _db.ChangeTracker.Clear();
+            invoice.Lines.Add(NewLine(line));
         }
+
+        await db.SaveChangesAsync();
+
+        await FillAssetPurchaseFactsAsync(db, invoice);
     }
 
     /// <summary>
@@ -158,67 +160,62 @@ public class InvoiceService
     /// </summary>
     public async Task<int> RecordAssetPurchaseAsync(AssetPurchaseInput input)
     {
-        try
-        {
-            var asset = await _db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == input.AssetId)
-                        ?? throw new InvalidOperationException("Asset not found.");
+        await using var db = await _dbFactory.CreateDbContextAsync();
 
-            var alreadyBilled = await _db.InvoiceLines
-                .AnyAsync(l => l.IsActive && l.AssetId == input.AssetId && l.Invoice!.IsActive);
-            if (alreadyBilled)
+        var asset = await db.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == input.AssetId)
+                    ?? throw new InvalidOperationException("Asset not found.");
+
+        var alreadyBilled = await db.InvoiceLines
+            .AnyAsync(l => l.IsActive && l.AssetId == input.AssetId && l.Invoice!.IsActive);
+        if (alreadyBilled)
+        {
+            throw new InvalidOperationException("This asset is already on an invoice.");
+        }
+
+        var line = new InvoiceLine
+        {
+            AssetId = input.AssetId,
+            Description = asset.AssetNumber + " — " + asset.Name,
+            Quantity = 1,
+            UnitPrice = input.Amount
+        };
+
+        Invoice invoice;
+
+        if (input.InvoiceId is int existingId)
+        {
+            invoice = await db.Invoices
+                .Include(i => i.Lines)
+                .FirstOrDefaultAsync(i => i.Id == existingId && i.IsActive)
+                ?? throw new InvalidOperationException("Invoice not found.");
+
+            invoice.Lines.Add(line);
+            invoice.Amount = invoice.Lines.Where(l => l.IsActive).Sum(l => l.Quantity * (l.UnitPrice ?? 0m));
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(input.InvoiceNumber))
             {
-                throw new InvalidOperationException("This asset is already on an invoice.");
+                throw new InvalidOperationException("The invoice number is required.");
             }
 
-            var line = new InvoiceLine
+            await EnsureNumberIsFreeAsync(db, input.InvoiceNumber, input.SupplierId, exceptId: null);
+
+            invoice = new Invoice
             {
-                AssetId = input.AssetId,
-                Description = asset.AssetNumber + " — " + asset.Name,
-                Quantity = 1,
-                UnitPrice = input.Amount
+                InvoiceNumber = input.InvoiceNumber.Trim(),
+                SupplierId = input.SupplierId,
+                InvoiceDate = input.InvoiceDate,
+                Currency = input.Currency,
+                Amount = input.Amount ?? 0m
             };
 
-            Invoice invoice;
-
-            if (input.InvoiceId is int existingId)
-            {
-                invoice = await _db.Invoices
-                    .Include(i => i.Lines)
-                    .FirstOrDefaultAsync(i => i.Id == existingId && i.IsActive)
-                    ?? throw new InvalidOperationException("Invoice not found.");
-
-                invoice.Lines.Add(line);
-                invoice.Amount = invoice.Lines.Where(l => l.IsActive).Sum(l => l.Quantity * (l.UnitPrice ?? 0m));
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(input.InvoiceNumber))
-                {
-                    throw new InvalidOperationException("The invoice number is required.");
-                }
-
-                await EnsureNumberIsFreeAsync(input.InvoiceNumber, input.SupplierId, exceptId: null);
-
-                invoice = new Invoice
-                {
-                    InvoiceNumber = input.InvoiceNumber.Trim(),
-                    SupplierId = input.SupplierId,
-                    InvoiceDate = input.InvoiceDate,
-                    Currency = input.Currency,
-                    Amount = input.Amount ?? 0m
-                };
-
-                invoice.Lines.Add(line);
-                _db.Invoices.Add(invoice);
-            }
-
-            await _db.SaveChangesAsync();
-            return invoice.Id;
+            invoice.Lines.Add(line);
+            db.Invoices.Add(invoice);
         }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+
+        await db.SaveChangesAsync();
+        return invoice.Id;
     }
 
     /// <summary>
@@ -226,7 +223,7 @@ public class InvoiceService
     /// blanks. Anything already recorded on the asset is left exactly as it is, because
     /// the asset register is the book of record for an asset, not the invoice.
     /// </summary>
-    private async Task FillAssetPurchaseFactsAsync(Invoice invoice)
+    private async Task FillAssetPurchaseFactsAsync(ApplicationDbContext db, Invoice invoice)
     {
         var assetIds = invoice.Lines
             .Where(l => l.IsActive && l.AssetId is not null)
@@ -239,7 +236,7 @@ public class InvoiceService
             return;
         }
 
-        var assets = await _db.Assets.Where(a => assetIds.Contains(a.Id)).ToListAsync();
+        var assets = await db.Assets.Where(a => assetIds.Contains(a.Id)).ToListAsync();
 
         foreach (var asset in assets)
         {
@@ -256,14 +253,14 @@ public class InvoiceService
             }
         }
 
-        await _db.SaveChangesAsync();
+        await db.SaveChangesAsync();
     }
 
     /// <summary>
     /// The database holds one invoice number per supplier. Saying it here keeps the
     /// SQL Server message off the screen.
     /// </summary>
-    private async Task EnsureNumberIsFreeAsync(string invoiceNumber, int? supplierId, int? exceptId)
+    private async Task EnsureNumberIsFreeAsync(ApplicationDbContext db, string invoiceNumber, int? supplierId, int? exceptId)
     {
         if (supplierId is null)
         {
@@ -272,7 +269,7 @@ public class InvoiceService
 
         var number = invoiceNumber.Trim();
 
-        var clash = await _db.Invoices.AnyAsync(i =>
+        var clash = await db.Invoices.AnyAsync(i =>
             i.Id != exceptId
             && i.SupplierId == supplierId
             && i.InvoiceNumber == number);

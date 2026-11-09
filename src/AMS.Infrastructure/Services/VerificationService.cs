@@ -13,16 +13,18 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class VerificationService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
 
-    public VerificationService(ApplicationDbContext db)
+    public VerificationService(IDbContextFactory<ApplicationDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<List<VerificationCampaign>> GetAllAsync()
     {
-        return await _db.VerificationCampaigns
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.VerificationCampaigns
             .AsNoTracking()
             .Include(c => c.Location)
             .Include(c => c.Department)
@@ -34,69 +36,61 @@ public class VerificationService
 
     public async Task<int> CreateAsync(VerificationInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (string.IsNullOrWhiteSpace(input.Name))
         {
             throw new InvalidOperationException("The campaign name is required.");
         }
 
-        try
+        var campaign = new VerificationCampaign
         {
-            var campaign = new VerificationCampaign
-            {
-                Name = input.Name.Trim(),
-                LocationId = input.LocationId,
-                DepartmentId = input.DepartmentId,
-                CategoryId = input.CategoryId,
-                StartDate = input.StartDate,
-                EndDate = input.EndDate,
-                Status = VerificationStatus.Draft
-            };
+            Name = input.Name.Trim(),
+            LocationId = input.LocationId,
+            DepartmentId = input.DepartmentId,
+            CategoryId = input.CategoryId,
+            StartDate = input.StartDate,
+            EndDate = input.EndDate,
+            Status = VerificationStatus.Draft
+        };
 
-            _db.VerificationCampaigns.Add(campaign);
-            await _db.SaveChangesAsync();
-            return campaign.Id;
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        db.VerificationCampaigns.Add(campaign);
+        await db.SaveChangesAsync();
+        return campaign.Id;
     }
 
     public async Task UpdateAsync(int id, VerificationInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (string.IsNullOrWhiteSpace(input.Name))
         {
             throw new InvalidOperationException("The campaign name is required.");
         }
 
-        try
+        var campaign = await Load(db, id);
+
+        if (campaign.Status == VerificationStatus.Closed)
         {
-            var campaign = await Load(id);
-
-            if (campaign.Status == VerificationStatus.Closed)
-            {
-                throw new InvalidOperationException("A closed campaign cannot be changed.");
-            }
-
-            campaign.Name = input.Name.Trim();
-            campaign.LocationId = input.LocationId;
-            campaign.DepartmentId = input.DepartmentId;
-            campaign.CategoryId = input.CategoryId;
-            campaign.StartDate = input.StartDate;
-            campaign.EndDate = input.EndDate;
-
-            await _db.SaveChangesAsync();
+            throw new InvalidOperationException("A closed campaign cannot be changed.");
         }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+
+        campaign.Name = input.Name.Trim();
+        campaign.LocationId = input.LocationId;
+        campaign.DepartmentId = input.DepartmentId;
+        campaign.CategoryId = input.CategoryId;
+        campaign.StartDate = input.StartDate;
+        campaign.EndDate = input.EndDate;
+
+        await db.SaveChangesAsync();
     }
 
     /// <summary>How many active assets match the scope right now.</summary>
     public async Task<int> CountScopeAsync(int? locationId, int? departmentId, int? categoryId)
     {
-        return await Scope(locationId, departmentId, categoryId).CountAsync();
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await Scope(db, locationId, departmentId, categoryId).CountAsync();
     }
 
     /// <summary>
@@ -105,74 +99,64 @@ public class VerificationService
     /// </summary>
     public async Task TakeSnapshotAsync(int id)
     {
-        try
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var campaign = await Load(db, id);
+
+        if (campaign.Status == VerificationStatus.Closed)
         {
-            var campaign = await Load(id);
-
-            if (campaign.Status == VerificationStatus.Closed)
-            {
-                throw new InvalidOperationException("A closed campaign cannot be changed.");
-            }
-
-            var numbers = await Scope(campaign.LocationId, campaign.DepartmentId, campaign.CategoryId)
-                .OrderBy(a => a.AssetNumber)
-                .Select(a => a.AssetNumber)
-                .ToListAsync();
-
-            if (numbers.Count == 0)
-            {
-                throw new InvalidOperationException("No active asset matches this scope.");
-            }
-
-            campaign.ExpectedSnapshot = string.Join(", ", numbers);
-            campaign.Status = VerificationStatus.InProgress;
-            campaign.Progress = 0m;
-
-            await _db.SaveChangesAsync();
+            throw new InvalidOperationException("A closed campaign cannot be changed.");
         }
-        finally
+
+        var numbers = await Scope(db, campaign.LocationId, campaign.DepartmentId, campaign.CategoryId)
+            .OrderBy(a => a.AssetNumber)
+            .Select(a => a.AssetNumber)
+            .ToListAsync();
+
+        if (numbers.Count == 0)
         {
-            _db.ChangeTracker.Clear();
+            throw new InvalidOperationException("No active asset matches this scope.");
         }
+
+        campaign.ExpectedSnapshot = string.Join(", ", numbers);
+        campaign.Status = VerificationStatus.InProgress;
+        campaign.Progress = 0m;
+
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Saves what was found: progress as a percentage and the findings as text.</summary>
     public async Task SaveResultsAsync(int id, decimal? progress, string? results, bool close)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         if (progress is < 0 or > 100)
         {
             throw new InvalidOperationException("Progress is a percentage between 0 and 100.");
         }
 
-        try
+        var campaign = await Load(db, id);
+
+        if (campaign.Status == VerificationStatus.Draft)
         {
-            var campaign = await Load(id);
-
-            if (campaign.Status == VerificationStatus.Draft)
-            {
-                throw new InvalidOperationException("Take the expected snapshot before recording results.");
-            }
-
-            campaign.Progress = progress;
-            campaign.Results = results;
-
-            if (close)
-            {
-                campaign.Status = VerificationStatus.Closed;
-                campaign.EndDate ??= DateTime.UtcNow.Date;
-            }
-
-            await _db.SaveChangesAsync();
+            throw new InvalidOperationException("Take the expected snapshot before recording results.");
         }
-        finally
+
+        campaign.Progress = progress;
+        campaign.Results = results;
+
+        if (close)
         {
-            _db.ChangeTracker.Clear();
+            campaign.Status = VerificationStatus.Closed;
+            campaign.EndDate ??= DateTime.UtcNow.Date;
         }
+
+        await db.SaveChangesAsync();
     }
 
-    private IQueryable<Asset> Scope(int? locationId, int? departmentId, int? categoryId)
+    private IQueryable<Asset> Scope(ApplicationDbContext db, int? locationId, int? departmentId, int? categoryId)
     {
-        var query = _db.Assets
+        var query = db.Assets
             .AsNoTracking()
             .Where(a => a.IsActive && a.LifecycleStage != LifecycleStage.Disposed);
 
@@ -194,9 +178,9 @@ public class VerificationService
         return query;
     }
 
-    private async Task<VerificationCampaign> Load(int id)
+    private async Task<VerificationCampaign> Load(ApplicationDbContext db, int id)
     {
-        return await _db.VerificationCampaigns.FirstOrDefaultAsync(c => c.Id == id && c.IsActive)
+        return await db.VerificationCampaigns.FirstOrDefaultAsync(c => c.Id == id && c.IsActive)
                ?? throw new InvalidOperationException("Campaign not found.");
     }
 }

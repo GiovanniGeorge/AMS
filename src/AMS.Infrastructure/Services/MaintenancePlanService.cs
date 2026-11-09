@@ -13,18 +13,20 @@ namespace AMS.Infrastructure.Services;
 /// </summary>
 public class MaintenancePlanService
 {
-    private readonly ApplicationDbContext _db;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbFactory;
     private readonly WorkOrderService _workOrders;
 
-    public MaintenancePlanService(ApplicationDbContext db, WorkOrderService workOrders)
+    public MaintenancePlanService(IDbContextFactory<ApplicationDbContext> dbFactory, WorkOrderService workOrders)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _workOrders = workOrders;
     }
 
     public async Task<List<PreventiveMaintenancePlan>> GetAllAsync()
     {
-        return await _db.PreventiveMaintenancePlans
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        return await db.PreventiveMaintenancePlans
             .AsNoTracking()
             .Include(p => p.Asset)
             .Include(p => p.Category)
@@ -35,56 +37,46 @@ public class MaintenancePlanService
 
     public async Task<int> CreateAsync(MaintenancePlanInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         Validate(input);
 
-        try
+        var plan = new PreventiveMaintenancePlan
         {
-            var plan = new PreventiveMaintenancePlan
-            {
-                Name = input.Name.Trim(),
-                AssetId = input.AssetId,
-                CategoryId = input.CategoryId,
-                Frequency = input.Frequency,
-                RepeatSchedule = input.ScheduleNotes,
-                UsageThreshold = input.UsageThreshold,
-                StartDate = input.StartDate,
-                EndDate = input.EndDate
-            };
+            Name = input.Name.Trim(),
+            AssetId = input.AssetId,
+            CategoryId = input.CategoryId,
+            Frequency = input.Frequency,
+            RepeatSchedule = input.ScheduleNotes,
+            UsageThreshold = input.UsageThreshold,
+            StartDate = input.StartDate,
+            EndDate = input.EndDate
+        };
 
-            _db.PreventiveMaintenancePlans.Add(plan);
-            await _db.SaveChangesAsync();
-            return plan.Id;
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        db.PreventiveMaintenancePlans.Add(plan);
+        await db.SaveChangesAsync();
+        return plan.Id;
     }
 
     public async Task UpdateAsync(int id, MaintenancePlanInput input)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         Validate(input);
 
-        try
-        {
-            var plan = await _db.PreventiveMaintenancePlans.FirstOrDefaultAsync(p => p.Id == id && p.IsActive)
-                       ?? throw new InvalidOperationException("Plan not found.");
+        var plan = await db.PreventiveMaintenancePlans.FirstOrDefaultAsync(p => p.Id == id && p.IsActive)
+                   ?? throw new InvalidOperationException("Plan not found.");
 
-            plan.Name = input.Name.Trim();
-            plan.AssetId = input.AssetId;
-            plan.CategoryId = input.CategoryId;
-            plan.Frequency = input.Frequency;
-            plan.RepeatSchedule = input.ScheduleNotes;
-            plan.UsageThreshold = input.UsageThreshold;
-            plan.StartDate = input.StartDate;
-            plan.EndDate = input.EndDate;
+        plan.Name = input.Name.Trim();
+        plan.AssetId = input.AssetId;
+        plan.CategoryId = input.CategoryId;
+        plan.Frequency = input.Frequency;
+        plan.RepeatSchedule = input.ScheduleNotes;
+        plan.UsageThreshold = input.UsageThreshold;
+        plan.StartDate = input.StartDate;
+        plan.EndDate = input.EndDate;
 
-            await _db.SaveChangesAsync();
-        }
-        finally
-        {
-            _db.ChangeTracker.Clear();
-        }
+        await db.SaveChangesAsync();
     }
 
     private static void Validate(MaintenancePlanInput input)
@@ -115,9 +107,11 @@ public class MaintenancePlanService
     /// </summary>
     public async Task<List<DuePlanItem>> GetDueAsync()
     {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
         var today = DateTime.UtcNow.Date;
 
-        var plans = await _db.PreventiveMaintenancePlans
+        var plans = await db.PreventiveMaintenancePlans
             .AsNoTracking()
             .Where(p => p.IsActive
                         && (p.StartDate == null || p.StartDate <= today)
@@ -134,7 +128,7 @@ public class MaintenancePlanService
                 continue;
             }
 
-            var assets = await _db.Assets
+            var assets = await db.Assets
                 .AsNoTracking()
                 .Where(a => a.IsActive
                             && a.LifecycleStage != LifecycleStage.Disposed
@@ -147,7 +141,7 @@ public class MaintenancePlanService
             foreach (var asset in assets)
             {
                 // The last work order this plan produced for this asset.
-                var last = await _db.WorkOrders
+                var last = await db.WorkOrders
                     .AsNoTracking()
                     .Where(w => w.IsActive && w.AssetId == asset.Id && w.PreventiveMaintenancePlanId == plan.Id)
                     .OrderByDescending(w => w.StartDate)
@@ -174,7 +168,9 @@ public class MaintenancePlanService
     /// <summary>Opens a preventive work order for that asset and plan. The asset goes Under maintenance.</summary>
     public async Task<int> OpenWorkOrderAsync(int planId, int assetId)
     {
-        var plan = await _db.PreventiveMaintenancePlans.AsNoTracking()
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var plan = await db.PreventiveMaintenancePlans.AsNoTracking()
                        .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive)
                    ?? throw new InvalidOperationException("Plan not found.");
 
