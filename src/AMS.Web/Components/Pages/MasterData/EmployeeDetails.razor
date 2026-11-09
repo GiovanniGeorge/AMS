@@ -1,6 +1,4 @@
 ﻿@page "/master/employees/{Id:int}"
-@inject DirectoryService Directory
-@inject NavigationManager Nav
 
 <PageTitle>@(_employee?.Name ?? "Employee")</PageTitle>
 
@@ -177,86 +175,4 @@ else
                       EmployeeLabel="@EmployeeLabel"
                       OnAssigned="OnAssignedAsync"
                       OnCancel="() => _assigning = false" />
-}
-
-@code {
-    [Parameter] public int Id { get; set; }
-
-    private Employee? _employee;
-    private List<Asset> _assets = new();
-    private List<CustodyLine> _history = new();
-
-    private string CsvName => "custody-" + (_employee?.EmployeeNumber ?? "employee") + ".csv";
-
-    private string EmployeeLabel => _employee is null
-        ? string.Empty
-        : _employee.EmployeeNumber + " — " + _employee.Name;
-
-    private bool _loading = true;
-    private bool _assigning;
-    private string? _csv;
-    private string? _error;
-    private string? _notice;
-
-    // Runs again when the route id changes, so one page serves every employee.
-    protected override async Task OnParametersSetAsync() => await LoadAsync();
-
-    private async Task LoadAsync()
-    {
-        _loading = true;
-        _csv = null;
-
-        try
-        {
-            _employee = await Directory.GetEmployeeAsync(Id);
-
-            if (_employee is not null)
-            {
-                _assets = await Directory.GetEmployeeAssetsAsync(Id);
-                _history = await Directory.GetCustodyHistoryAsync(Id);
-            }
-
-            _error = null;
-        }
-        catch (Exception ex) { _error = ex.Message; }
-        finally { _loading = false; }
-    }
-
-    private async Task OnAssignedAsync(bool moved)
-    {
-        _assigning = false;
-        _notice = moved
-            ? "The asset was assigned and is now in this employee's custody."
-            : "The request was raised and is waiting for the administrator's approval.";
-
-        await LoadAsync();
-    }
-
-    /// <summary>The custody list as a data: link, same approach as the register - no endpoint, no JavaScript.</summary>
-    private void PrepareCsv()
-    {
-        var text = new System.Text.StringBuilder();
-        text.AppendLine("Asset No.,Name,Category,Stage,Condition,Location,Serial,Purchase date,Purchase cost");
-
-        foreach (var a in _assets)
-        {
-            text.AppendLine(string.Join(',', new[]
-            {
-                Csv(a.AssetNumber), Csv(a.Name), Csv(a.Category?.Name), Csv(a.LifecycleStage.ToString()),
-                Csv(a.Status?.Name), Csv(a.Location?.Name), Csv(a.SerialNumber),
-                Csv(a.PurchaseDate?.ToString("yyyy-MM-dd")), Csv(a.PurchaseCost?.ToString("0.00"))
-            }));
-        }
-
-        var bytes = System.Text.Encoding.UTF8.GetBytes("﻿" + text.ToString());
-        _csv = "data:text/csv;base64," + Convert.ToBase64String(bytes);
-    }
-
-    private static string Csv(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return "";
-        return value.Contains(',') || value.Contains('"') || value.Contains('\n')
-            ? "\"" + value.Replace("\"", "\"\"") + "\""
-            : value;
-    }
 }

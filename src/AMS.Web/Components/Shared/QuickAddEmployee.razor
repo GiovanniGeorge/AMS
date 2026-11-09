@@ -1,7 +1,6 @@
 @* An employee is more than a name - it needs a staff number, and usually a department.
    This wraps QuickAdd so every screen that picks a custodian can create one in one line. *@
 
-@inject CrudService<Department> Departments
 
 <QuickAdd TItem="Employee" What="employee" OnAdded="AddedAsync"
           Prepare="Fill" Validate="Check">
@@ -16,33 +15,3 @@
         </select>
     </Extra>
 </QuickAdd>
-
-@code {
-    [Parameter] public EventCallback<Employee> OnAdded { get; set; }
-
-    private List<Department> _departments = new();
-    private string? _number;
-    private int? _departmentId;
-
-    protected override async Task OnInitializedAsync()
-    {
-        try { _departments = await Departments.GetAllAsync(); }
-        catch { /* the list stays empty; the department is optional anyway */ }
-    }
-
-    private string? Check() =>
-        string.IsNullOrWhiteSpace(_number) ? "Type the employee number." : null;
-
-    private void Fill(Employee employee)
-    {
-        employee.EmployeeNumber = _number!.Trim();
-        employee.DepartmentId = _departmentId;
-    }
-
-    private async Task AddedAsync(Employee employee)
-    {
-        _number = null;
-        _departmentId = null;
-        await OnAdded.InvokeAsync(employee);
-    }
-}

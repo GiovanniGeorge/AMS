@@ -36,16 +36,3 @@
     <a href="" class="reload">Reload</a>
     <a class="dismiss">&#128473;</a>
 </div>
-
-@inject NavigationManager Nav
-
-@code {
-    private bool _navOpen;
-
-    // forceLoad: the logout page must run as a plain HTTP request to remove the cookie.
-    private void Logout() => Nav.NavigateTo("account/logout", forceLoad: true);
-
-    private void ToggleNav() => _navOpen = !_navOpen;
-
-    private void CloseNav() => _navOpen = false;
-}

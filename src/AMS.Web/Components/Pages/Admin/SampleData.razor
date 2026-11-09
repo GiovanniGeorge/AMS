@@ -1,7 +1,5 @@
 @page "/admin/sample-data"
 @attribute [Authorize(Roles = AppRoles.Admin)]
-@inject SampleDataService Sample
-@inject NavigationManager Nav
 
 <PageTitle>Sample Data</PageTitle>
 
@@ -60,35 +58,3 @@
         </div>
     }
 </div>
-
-@code {
-    private bool? _canLoad;
-    private string? _done;
-    private string? _error;
-    private bool _busy;
-
-    protected override async Task OnInitializedAsync()
-    {
-        try { _canLoad = await Sample.CanLoadAsync(); }
-        catch (Exception ex) { _error = ex.Message; }
-    }
-
-    private async Task LoadAsync()
-    {
-        _error = null;
-        _busy = true;
-
-        try
-        {
-            _done = await Sample.LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.InnerException?.Message ?? ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-}
